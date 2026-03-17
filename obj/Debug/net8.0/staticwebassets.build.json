@@ -1,1 +1,11 @@
-{"Version":1,"Hash":"XqVu1NwurrXpoCSY5CGdX6gMSX2MprFWCVrw/MPiMn4=","Source":"GestionProjet","BasePath":"/","Mode":"Root","ManifestType":"Build","ReferencedProjectsConfiguration":[],"DiscoveryPatterns":[],"Assets":[],"Endpoints":[]}
+{
+  "Version": 1,
+  "Hash": "g/Do0CCuLKyZlRoW7/X33E0fcn8wdaaFG7J/8fIKsd4=",
+  "Source": "GestionProjet",
+  "BasePath": "_content/GestionProjet",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}
