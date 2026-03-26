@@ -5,5 +5,5 @@ public enum StatutProjet
     Planifie,
     EnCours,
     Termine,
-    Annule
+    Retarde,
 }

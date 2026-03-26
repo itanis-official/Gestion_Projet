@@ -4,6 +4,7 @@ using GestionProjet.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GestionProjet.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260318141842_AddGroupeEquipeToProjet")]
+    partial class AddGroupeEquipeToProjet
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -140,6 +143,9 @@ namespace GestionProjet.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Email")
+                        .IsUnique();
+
                     b.HasIndex("GroupeEquipeId");
 
                     b.ToTable("Employes");
@@ -153,9 +159,6 @@ namespace GestionProjet.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("ChefEquipeId")
-                        .HasColumnType("int");
-
                     b.Property<string>("Nom")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -166,8 +169,6 @@ namespace GestionProjet.Migrations
                         .HasColumnType("nvarchar(50)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ChefEquipeId");
 
                     b.ToTable("GroupesEquipe");
                 });
@@ -387,16 +388,10 @@ namespace GestionProjet.Migrations
                     b.Property<int>("PhaseId")
                         .HasColumnType("int");
 
-                    b.Property<int?>("ResponsableId")
-                        .HasColumnType("int");
-
                     b.Property<string>("Statut")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
-
-                    b.Property<int?>("TesteurId")
-                        .HasColumnType("int");
 
                     b.Property<string>("Titre")
                         .IsRequired()
@@ -407,11 +402,7 @@ namespace GestionProjet.Migrations
 
                     b.HasIndex("PhaseId");
 
-                    b.HasIndex("ResponsableId");
-
                     b.HasIndex("Statut");
-
-                    b.HasIndex("TesteurId");
 
                     b.ToTable("Taches");
                 });
@@ -709,20 +700,9 @@ namespace GestionProjet.Migrations
                 {
                     b.HasOne("GestionProjet.Models.GroupeEquipe", "GroupeEquipe")
                         .WithMany("Employes")
-                        .HasForeignKey("GroupeEquipeId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .HasForeignKey("GroupeEquipeId");
 
                     b.Navigation("GroupeEquipe");
-                });
-
-            modelBuilder.Entity("GestionProjet.Models.GroupeEquipe", b =>
-                {
-                    b.HasOne("GestionProjet.Models.Employe", "ChefEquipe")
-                        .WithMany()
-                        .HasForeignKey("ChefEquipeId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.Navigation("ChefEquipe");
                 });
 
             modelBuilder.Entity("GestionProjet.Models.Notification", b =>
@@ -798,19 +778,7 @@ namespace GestionProjet.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("GestionProjet.Models.Employe", "Responsable")
-                        .WithMany()
-                        .HasForeignKey("ResponsableId");
-
-                    b.HasOne("GestionProjet.Models.Employe", "Testeur")
-                        .WithMany()
-                        .HasForeignKey("TesteurId");
-
                     b.Navigation("Phase");
-
-                    b.Navigation("Responsable");
-
-                    b.Navigation("Testeur");
                 });
 
             modelBuilder.Entity("GestionProjet.Models.Test", b =>

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
 using GestionProjet.Models;
 using GestionProjet.DTOs.Auth;
 using GestionProjet.Services.Interfaces;
@@ -14,7 +15,6 @@ public class AuthController : ControllerBase
 {
     private readonly UserManager<Utilisateur> _userManager;
     private readonly SignInManager<Utilisateur> _signInManager;
-    private readonly RoleManager<IdentityRole> _roleManager;
     private readonly IJwtService _jwtService;
     private readonly ApplicationDbContext _context;
     private readonly IConfiguration _configuration;
@@ -22,39 +22,34 @@ public class AuthController : ControllerBase
     public AuthController(
         UserManager<Utilisateur> userManager,
         SignInManager<Utilisateur> signInManager,
-        RoleManager<IdentityRole> roleManager,
         IJwtService jwtService,
         ApplicationDbContext context,
         IConfiguration configuration)
     {
         _userManager = userManager;
         _signInManager = signInManager;
-        _roleManager = roleManager;
         _jwtService = jwtService;
         _context = context;
         _configuration = configuration;
     }
 
+    // ========================= REGISTER =========================
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponseDto>> Register(RegisterDto registerDto)
     {
         if (!ModelState.IsValid)
-        {
             return BadRequest(ModelState);
-        }
 
-      
         var existingUser = await _userManager.FindByEmailAsync(registerDto.Email);
         if (existingUser != null)
         {
-            return BadRequest(new AuthResponseDto 
-            { 
-                Success = false, 
-                Message = "Un utilisateur avec cet email existe déjà." 
+            return BadRequest(new AuthResponseDto
+            {
+                Success = false,
+                Message = "Email déjà utilisé"
             });
         }
 
-       
         var user = new Utilisateur
         {
             UserName = registerDto.Email,
@@ -73,15 +68,37 @@ public class AuthController : ControllerBase
             return BadRequest(new AuthResponseDto
             {
                 Success = false,
-                Message = "Erreur lors de la création de l'utilisateur",
                 Errors = result.Errors.Select(e => e.Description).ToList()
             });
         }
 
+        // ================= CREATE / LINK EMPLOYE =================
+        var employe = await _context.Employes.FirstOrDefaultAsync(e => e.Email == user.Email);
+
+        if (employe == null)
+        {
+            employe = new Employe
+            {
+                NomComplet = user.NomComplet,
+                Email = user.Email,
+                Role = "Employe"
+            };
+
+            _context.Employes.Add(employe);
+            await _context.SaveChangesAsync();
+        }
+
+        // LINK
+        user.EmployeId = employe.Id;
+        await _userManager.UpdateAsync(user);
+
+        // 🔥 IMPORTANT: reload user to ensure EF + Identity sync
+        user = await _userManager.FindByIdAsync(user.Id);
 
         await _userManager.AddToRoleAsync(user, "User");
 
         var roles = await _userManager.GetRolesAsync(user);
+
         var token = _jwtService.GenerateJwtToken(user, roles);
         var refreshToken = _jwtService.GenerateRefreshToken();
 
@@ -93,7 +110,9 @@ public class AuthController : ControllerBase
             Message = "Inscription réussie",
             Token = token,
             RefreshToken = refreshToken,
-            Expiration = DateTime.UtcNow.AddMinutes(_configuration.GetValue<int>("JwtSettings:ExpirationInMinutes")),
+            Expiration = DateTime.UtcNow.AddMinutes(
+                _configuration.GetValue<int>("JwtSettings:ExpirationInMinutes")
+            ),
             UserId = user.Id,
             Email = user.Email,
             NomComplet = user.NomComplet,
@@ -101,30 +120,21 @@ public class AuthController : ControllerBase
         });
     }
 
+    // ========================= LOGIN =========================
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponseDto>> Login(LoginDto loginDto)
     {
         if (!ModelState.IsValid)
-        {
             return BadRequest(ModelState);
-        }
 
         var user = await _userManager.FindByEmailAsync(loginDto.Email);
-        if (user == null)
-        {
-            return Unauthorized(new AuthResponseDto 
-            { 
-                Success = false, 
-                Message = "Email ou mot de passe incorrect." 
-            });
-        }
 
-        if (!user.EstActif)
+        if (user == null || !user.EstActif)
         {
-            return Unauthorized(new AuthResponseDto 
-            { 
-                Success = false, 
-                Message = "Ce compte est désactivé. Contactez l'administrateur." 
+            return Unauthorized(new AuthResponseDto
+            {
+                Success = false,
+                Message = "Email ou mot de passe incorrect"
             });
         }
 
@@ -132,16 +142,15 @@ public class AuthController : ControllerBase
 
         if (!result.Succeeded)
         {
-            return Unauthorized(new AuthResponseDto 
-            { 
-                Success = false, 
-                Message = "Email ou mot de passe incorrect." 
+            return Unauthorized(new AuthResponseDto
+            {
+                Success = false,
+                Message = "Email ou mot de passe incorrect"
             });
         }
 
-        await _userManager.UpdateAsync(user);
-
         var roles = await _userManager.GetRolesAsync(user);
+
         var token = _jwtService.GenerateJwtToken(user, roles);
         var refreshToken = _jwtService.GenerateRefreshToken();
 
@@ -154,7 +163,9 @@ public class AuthController : ControllerBase
             Message = "Connexion réussie",
             Token = token,
             RefreshToken = refreshToken,
-            Expiration = DateTime.UtcNow.AddMinutes(_configuration.GetValue<int>("JwtSettings:ExpirationInMinutes")),
+            Expiration = DateTime.UtcNow.AddMinutes(
+                _configuration.GetValue<int>("JwtSettings:ExpirationInMinutes")
+            ),
             UserId = user.Id,
             Email = user.Email,
             NomComplet = user.NomComplet,
@@ -162,115 +173,15 @@ public class AuthController : ControllerBase
         });
     }
 
-    [HttpPost("refresh-token")]
-    public async Task<ActionResult<AuthResponseDto>> RefreshToken(RefreshTokenDto refreshTokenDto)
-    {
-        if (string.IsNullOrEmpty(refreshTokenDto.Token) || string.IsNullOrEmpty(refreshTokenDto.RefreshToken))
-        {
-            return BadRequest(new AuthResponseDto 
-            { 
-                Success = false, 
-                Message = "Token et refresh token sont requis." 
-            });
-        }
-
-        try
-        {
-            var principal = _jwtService.GetPrincipalFromExpiredToken(refreshTokenDto.Token);
-            var userId = principal?.FindFirst("userId")?.Value;
-
-            if (string.IsNullOrEmpty(userId))
-            {
-                return Unauthorized(new AuthResponseDto 
-                { 
-                    Success = false, 
-                    Message = "Token invalide." 
-                });
-            }
-
-            var refreshToken = await _context.RefreshTokens
-                .FirstOrDefaultAsync(rt => rt.Token == refreshTokenDto.RefreshToken 
-                    && rt.UserId == userId 
-                    && !rt.IsRevoked 
-                    && rt.ExpiryDate > DateTime.UtcNow);
-
-            if (refreshToken == null)
-            {
-                return Unauthorized(new AuthResponseDto 
-                { 
-                    Success = false, 
-                    Message = "Refresh token invalide ou expiré." 
-                });
-            }
-
-            refreshToken.IsRevoked = true;
-            await _context.SaveChangesAsync();
-
-            var user = await _userManager.FindByIdAsync(userId);
-            if (user == null)
-            {
-                return Unauthorized(new AuthResponseDto 
-                { 
-                    Success = false, 
-                    Message = "Utilisateur non trouvé." 
-                });
-            }
-
-            var roles = await _userManager.GetRolesAsync(user);
-            var newToken = _jwtService.GenerateJwtToken(user, roles);
-            var newRefreshToken = _jwtService.GenerateRefreshToken();
-
-            await SaveRefreshToken(user.Id, newRefreshToken);
-
-            return Ok(new AuthResponseDto
-            {
-                Success = true,
-                Message = "Token rafraîchi avec succès",
-                Token = newToken,
-                RefreshToken = newRefreshToken,
-                Expiration = DateTime.UtcNow.AddMinutes(_configuration.GetValue<int>("JwtSettings:ExpirationInMinutes")),
-                UserId = user.Id,
-                Email = user.Email,
-                NomComplet = user.NomComplet,
-                Roles = roles.ToList()
-            });
-        }
-        catch (Exception ex)
-        {
-            return Unauthorized(new AuthResponseDto 
-            { 
-                Success = false, 
-                Message = "Token invalide.", 
-                Errors = new List<string> { ex.Message }
-            });
-        }
-    }
-
-    [HttpPost("logout")]
-    [Microsoft.AspNetCore.Authorization.Authorize]
-    public async Task<IActionResult> Logout()
-    {
-        var userId = User.FindFirst("userId")?.Value;
-        if (!string.IsNullOrEmpty(userId))
-        {
-            await RevokeAllUserRefreshTokens(userId);
-        }
-
-        return Ok(new { message = "Déconnexion réussie" });
-    }
-
-   
+    // ========================= ME =========================
     [HttpGet("me")]
-    [Microsoft.AspNetCore.Authorization.Authorize]
+    [Authorize]
     public async Task<ActionResult<object>> GetCurrentUser()
     {
         var userId = User.FindFirst("userId")?.Value;
-        var user = await _userManager.FindByIdAsync(userId ?? string.Empty);
 
-        if (user == null)
-        {
-            return NotFound();
-        }
+        var user = await _userManager.FindByIdAsync(userId!);
+        if (user == null) return NotFound();
 
         var roles = await _userManager.GetRolesAsync(user);
 
@@ -283,50 +194,67 @@ public class AuthController : ControllerBase
             user.Departement,
             user.EstActif,
             user.DateCreation,
+            user.EmployeId,
             Roles = roles
         });
     }
 
+    // ========================= REFRESH TOKEN =========================
+    [HttpPost("refresh-token")]
+    public async Task<ActionResult<AuthResponseDto>> RefreshToken(RefreshTokenDto dto)
+    {
+        var principal = _jwtService.GetPrincipalFromExpiredToken(dto.Token);
+        var userId = principal?.FindFirst("userId")?.Value;
+
+        if (userId == null)
+            return Unauthorized();
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null)
+            return Unauthorized();
+
+        var roles = await _userManager.GetRolesAsync(user);
+
+        var newToken = _jwtService.GenerateJwtToken(user, roles);
+        var newRefreshToken = _jwtService.GenerateRefreshToken();
+
+        await SaveRefreshToken(user.Id, newRefreshToken);
+
+        return Ok(new AuthResponseDto
+        {
+            Success = true,
+            Token = newToken,
+            RefreshToken = newRefreshToken,
+            UserId = user.Id,
+            Email = user.Email,
+            NomComplet = user.NomComplet,
+            Roles = roles.ToList()
+        });
+    }
+
+    // ========================= HELPERS =========================
     private async Task SaveRefreshToken(string userId, string token)
     {
-        var refreshToken = new RefreshToken
+        _context.RefreshTokens.Add(new RefreshToken
         {
             Token = token,
             UserId = userId,
             ExpiryDate = DateTime.UtcNow.AddDays(
-                _configuration.GetValue<int>("JwtSettings:RefreshTokenExpirationInDays")),
-            IsRevoked = false,
-            CreatedAt = DateTime.UtcNow
-        };
+                _configuration.GetValue<int>("JwtSettings:RefreshTokenExpirationInDays")
+            )
+        });
 
-        _context.RefreshTokens.Add(refreshToken);
         await _context.SaveChangesAsync();
     }
 
     private async Task RevokeOldRefreshTokens(string userId)
     {
-        var oldTokens = await _context.RefreshTokens
-            .Where(rt => rt.UserId == userId && !rt.IsRevoked)
-            .ToListAsync();
-
-        foreach (var token in oldTokens)
-        {
-            token.IsRevoked = true;
-        }
-
-        await _context.SaveChangesAsync();
-    }
-
-    private async Task RevokeAllUserRefreshTokens(string userId)
-    {
         var tokens = await _context.RefreshTokens
-            .Where(rt => rt.UserId == userId && !rt.IsRevoked)
+            .Where(x => x.UserId == userId && !x.IsRevoked)
             .ToListAsync();
 
-        foreach (var token in tokens)
-        {
-            token.IsRevoked = true;
-        }
+        foreach (var t in tokens)
+            t.IsRevoked = true;
 
         await _context.SaveChangesAsync();
     }

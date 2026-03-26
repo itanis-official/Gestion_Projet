@@ -102,8 +102,15 @@ public class ApplicationDbContext : IdentityDbContext<Utilisateur>
             .HasIndex(st => st.Statut);
 
         modelBuilder.Entity<Employe>()
-            .HasIndex(e => e.Email)
-            .IsUnique();
+    .HasOne(e => e.GroupeEquipe)
+    .WithMany(g => g.Employes)
+    .HasForeignKey(e => e.GroupeEquipeId)
+    .OnDelete(DeleteBehavior.SetNull);
+    modelBuilder.Entity<GroupeEquipe>()
+    .HasOne(g => g.ChefEquipe)
+    .WithMany()
+    .HasForeignKey(g => g.ChefEquipeId)
+    .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<Notification>()
             .HasIndex(n => n.EmployeId);

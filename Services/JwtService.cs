@@ -28,7 +28,10 @@ public class JwtService : IJwtService
             new Claim("nomComplet", user.NomComplet),
             new Claim("userId", user.Id)
         };
-
+if (user.EmployeId.HasValue)
+    {
+        claims.Add(new Claim("EmployeId", user.EmployeId.Value.ToString()));
+    }
         foreach (var role in roles)
         {
             claims.Add(new Claim(ClaimTypes.Role, role));

@@ -41,7 +41,9 @@ public class Projet
     
     [ForeignKey("ClientId")]
     public virtual Client Client { get; set; } = null!;
-    
+public int? GroupeEquipeId { get; set; }   
+[ForeignKey("GroupeEquipeId")]
+public virtual GroupeEquipe? GroupeEquipe { get; set; }
     public virtual ICollection<Phase> Phases { get; set; } = new List<Phase>();
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 }

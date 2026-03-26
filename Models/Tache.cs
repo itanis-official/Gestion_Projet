@@ -26,6 +26,14 @@ public class Tache
     
     [ForeignKey("PhaseId")]
     public virtual Phase Phase { get; set; } = null!;
+    public int? ResponsableId { get; set; }
+public int? TesteurId { get; set; }
+
+[ForeignKey("ResponsableId")]
+public Employe? Responsable { get; set; }
+
+[ForeignKey("TesteurId")]
+public Employe? Testeur { get; set; }
     
     public virtual ICollection<SousTache> SousTaches { get; set; } = new List<SousTache>();
     public virtual ICollection<Test> Tests { get; set; } = new List<Test>();
