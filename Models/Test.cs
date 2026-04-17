@@ -10,6 +10,7 @@ public class Test
     public int Id { get; set; }
     
     public int TacheId { get; set; }
+    public int SousTacheId { get; set; }
     
     public int EmployeId { get; set; }
     

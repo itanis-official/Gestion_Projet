@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using GestionProjet.Enums;
 
+
 namespace GestionProjet.Models;
 
 public class Phase
@@ -19,7 +20,7 @@ public class Phase
     
     [Required]
     [StringLength(20)]
-    public string Statut { get; set; } = "À démarrer";
+  public StatutPhase Statut { get; set; } = StatutPhase.ADemarrer;
    
     [ForeignKey("ProjetId")]
     public virtual Projet Projet { get; set; } = null!;

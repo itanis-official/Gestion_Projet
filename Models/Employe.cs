@@ -20,11 +20,14 @@ public class Employe
     [Required]
     [StringLength(50)]
     public string Role { get; set; } = string.Empty;
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal CoutHoraire { get; set; }
     
     public int? GroupeEquipeId { get; set; }
     
     [ForeignKey("GroupeEquipeId")]
     public virtual GroupeEquipe? GroupeEquipe { get; set; }
+    public virtual ICollection<EmployeCompetence> EmployeCompetences { get; set; } = new List<EmployeCompetence>();
     
     public virtual ICollection<Affectation> Affectations { get; set; } = new List<Affectation>();
     public virtual ICollection<Test> TestsEffectues { get; set; } = new List<Test>();

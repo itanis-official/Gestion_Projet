@@ -38,7 +38,7 @@ public async Task<IActionResult> GetTachesParMembre(
     var taches = await _context.Taches
         .Include(t => t.Phase)
             .ThenInclude(ph => ph.Projet)
-        .Include(t => t.SousTaches) // ✅ important
+        .Include(t => t.SousTaches) 
         .Where(t =>
             t.Phase.ProjetId == projetId &&
             (t.ResponsableId == employeId || t.TesteurId == employeId))

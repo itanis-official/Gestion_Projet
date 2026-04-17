@@ -24,11 +24,63 @@ public class ApplicationDbContext : IdentityDbContext<Utilisateur>
     public DbSet<DeclarationTemps> DeclarationsTemps { get; set; }
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
-
+    
+    // ==================== NOUVEAUX DbSet ====================
+   public DbSet<Competence> Competences { get; set; }
+public DbSet<EmployeCompetence> EmployeCompetences { get; set; }
+public DbSet<TacheCompetence> TacheCompetences { get; set; }
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        
+        // ==================== CONFIGURATIONS DES COMPÉTENCES ====================
+        
+        modelBuilder.Entity<EmployeCompetence>()
 
+            .HasOne(ec => ec.Employe)
+            .WithMany(e => e.EmployeCompetences)
+            .HasForeignKey(ec => ec.EmployeId)
+            .OnDelete(DeleteBehavior.Cascade);
+            
+        modelBuilder.Entity<EmployeCompetence>()
+            .Property(ec => ec.DateAcquisition)
+            .HasDefaultValueSql("GETDATE()");
+        
+        modelBuilder.Entity<EmployeCompetence>()
+            .HasOne(ec => ec.Competence)
+            .WithMany(c => c.EmployeCompetences)
+            .HasForeignKey(ec => ec.CompetenceId)
+            .OnDelete(DeleteBehavior.Cascade);
+        
+        modelBuilder.Entity<TacheCompetence>()
+            .HasOne(tc => tc.Tache)
+            .WithMany(t => t.TacheCompetences)
+            .HasForeignKey(tc => tc.TacheId)
+            .OnDelete(DeleteBehavior.Cascade);
+        
+        modelBuilder.Entity<TacheCompetence>()
+            .HasOne(tc => tc.Competence)
+            .WithMany(c => c.TacheCompetences)
+            .HasForeignKey(tc => tc.CompetenceId)
+            .OnDelete(DeleteBehavior.Cascade);
+        
+        // Index pour optimiser les recherches
+        modelBuilder.Entity<Competence>()
+            .HasIndex(c => c.Nom)
+            .IsUnique();
+        
+        modelBuilder.Entity<Competence>()
+            .HasIndex(c => c.Categorie);
+        
+        modelBuilder.Entity<EmployeCompetence>()
+            .HasIndex(ec => new { ec.EmployeId, ec.CompetenceId })
+            .IsUnique();
+        
+        modelBuilder.Entity<TacheCompetence>()
+            .HasIndex(tc => new { tc.TacheId, tc.CompetenceId })
+            .IsUnique();
+
+        // ==================== CONFIGURATIONS EXISTANTES ====================
 
         modelBuilder.Entity<Phase>()
             .HasOne(p => p.Projet)
@@ -83,6 +135,7 @@ public class ApplicationDbContext : IdentityDbContext<Utilisateur>
             .WithMany(e => e.Notifications)
             .HasForeignKey(n => n.EmployeId)
             .OnDelete(DeleteBehavior.Cascade);
+            
         modelBuilder.Entity<Utilisateur>()
             .HasOne(u => u.Employe)
             .WithMany()
@@ -102,15 +155,16 @@ public class ApplicationDbContext : IdentityDbContext<Utilisateur>
             .HasIndex(st => st.Statut);
 
         modelBuilder.Entity<Employe>()
-    .HasOne(e => e.GroupeEquipe)
-    .WithMany(g => g.Employes)
-    .HasForeignKey(e => e.GroupeEquipeId)
-    .OnDelete(DeleteBehavior.SetNull);
-    modelBuilder.Entity<GroupeEquipe>()
-    .HasOne(g => g.ChefEquipe)
-    .WithMany()
-    .HasForeignKey(g => g.ChefEquipeId)
-    .OnDelete(DeleteBehavior.Restrict);
+            .HasOne(e => e.GroupeEquipe)
+            .WithMany(g => g.Employes)
+            .HasForeignKey(e => e.GroupeEquipeId)
+            .OnDelete(DeleteBehavior.SetNull);
+            
+        modelBuilder.Entity<GroupeEquipe>()
+            .HasOne(g => g.ChefEquipe)
+            .WithMany()
+            .HasForeignKey(g => g.ChefEquipeId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<Notification>()
             .HasIndex(n => n.EmployeId);

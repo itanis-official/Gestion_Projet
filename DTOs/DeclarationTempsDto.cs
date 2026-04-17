@@ -10,11 +10,7 @@ public class DeclarationTempsDto
     public string Type { get; set; } = string.Empty;
 }
 
-public class DeclarationTempsDetailDto : DeclarationTempsDto
-{
-    public string SousTacheTitre { get; set; } = string.Empty;
-    public string EmployeNom { get; set; } = string.Empty;
-}
+
 
 public class DeclarationTempsSimplifieDto
 {

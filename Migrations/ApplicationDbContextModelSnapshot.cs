@@ -78,6 +78,43 @@ namespace GestionProjet.Migrations
                     b.ToTable("Clients");
                 });
 
+            modelBuilder.Entity("GestionProjet.Models.Competence", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Categorie")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Niveau")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Nom")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Categorie");
+
+                    b.HasIndex("Nom")
+                        .IsUnique();
+
+                    b.ToTable("Competences");
+                });
+
             modelBuilder.Entity("GestionProjet.Models.DeclarationTemps", b =>
                 {
                     b.Property<int>("Id")
@@ -120,6 +157,9 @@ namespace GestionProjet.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<decimal>("CoutHoraire")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -143,6 +183,44 @@ namespace GestionProjet.Migrations
                     b.HasIndex("GroupeEquipeId");
 
                     b.ToTable("Employes");
+                });
+
+            modelBuilder.Entity("GestionProjet.Models.EmployeCompetence", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Certificat")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("CompetenceId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("DateAcquisition")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETDATE()");
+
+                    b.Property<int>("EmployeId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Niveau")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompetenceId");
+
+                    b.HasIndex("EmployeId", "CompetenceId")
+                        .IsUnique();
+
+                    b.ToTable("EmployeCompetences");
                 });
 
             modelBuilder.Entity("GestionProjet.Models.GroupeEquipe", b =>
@@ -226,10 +304,9 @@ namespace GestionProjet.Migrations
                     b.Property<int>("ProjetId")
                         .HasColumnType("int");
 
-                    b.Property<string>("Statut")
-                        .IsRequired()
+                    b.Property<int>("Statut")
                         .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
+                        .HasColumnType("int");
 
                     b.Property<int>("TypePhase")
                         .HasColumnType("int");
@@ -390,10 +467,9 @@ namespace GestionProjet.Migrations
                     b.Property<int?>("ResponsableId")
                         .HasColumnType("int");
 
-                    b.Property<string>("Statut")
-                        .IsRequired()
+                    b.Property<int>("Statut")
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("int");
 
                     b.Property<int?>("TesteurId")
                         .HasColumnType("int");
@@ -416,6 +492,35 @@ namespace GestionProjet.Migrations
                     b.ToTable("Taches");
                 });
 
+            modelBuilder.Entity("GestionProjet.Models.TacheCompetence", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CompetenceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("NiveauRequis")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<int>("TacheId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompetenceId");
+
+                    b.HasIndex("TacheId", "CompetenceId")
+                        .IsUnique();
+
+                    b.ToTable("TacheCompetences");
+                });
+
             modelBuilder.Entity("GestionProjet.Models.Test", b =>
                 {
                     b.Property<int>("Id")
@@ -434,6 +539,9 @@ namespace GestionProjet.Migrations
                         .HasColumnType("int");
 
                     b.Property<int>("Resultat")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SousTacheId")
                         .HasColumnType("int");
 
                     b.Property<int>("TacheId")
@@ -715,6 +823,25 @@ namespace GestionProjet.Migrations
                     b.Navigation("GroupeEquipe");
                 });
 
+            modelBuilder.Entity("GestionProjet.Models.EmployeCompetence", b =>
+                {
+                    b.HasOne("GestionProjet.Models.Competence", "Competence")
+                        .WithMany("EmployeCompetences")
+                        .HasForeignKey("CompetenceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GestionProjet.Models.Employe", "Employe")
+                        .WithMany("EmployeCompetences")
+                        .HasForeignKey("EmployeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Competence");
+
+                    b.Navigation("Employe");
+                });
+
             modelBuilder.Entity("GestionProjet.Models.GroupeEquipe", b =>
                 {
                     b.HasOne("GestionProjet.Models.Employe", "ChefEquipe")
@@ -813,6 +940,25 @@ namespace GestionProjet.Migrations
                     b.Navigation("Testeur");
                 });
 
+            modelBuilder.Entity("GestionProjet.Models.TacheCompetence", b =>
+                {
+                    b.HasOne("GestionProjet.Models.Competence", "Competence")
+                        .WithMany("TacheCompetences")
+                        .HasForeignKey("CompetenceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("GestionProjet.Models.Tache", "Tache")
+                        .WithMany("TacheCompetences")
+                        .HasForeignKey("TacheId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Competence");
+
+                    b.Navigation("Tache");
+                });
+
             modelBuilder.Entity("GestionProjet.Models.Test", b =>
                 {
                     b.HasOne("GestionProjet.Models.Employe", "Employe")
@@ -898,11 +1044,20 @@ namespace GestionProjet.Migrations
                     b.Navigation("Projets");
                 });
 
+            modelBuilder.Entity("GestionProjet.Models.Competence", b =>
+                {
+                    b.Navigation("EmployeCompetences");
+
+                    b.Navigation("TacheCompetences");
+                });
+
             modelBuilder.Entity("GestionProjet.Models.Employe", b =>
                 {
                     b.Navigation("Affectations");
 
                     b.Navigation("DeclarationsTemps");
+
+                    b.Navigation("EmployeCompetences");
 
                     b.Navigation("Notifications");
 
@@ -936,6 +1091,8 @@ namespace GestionProjet.Migrations
             modelBuilder.Entity("GestionProjet.Models.Tache", b =>
                 {
                     b.Navigation("SousTaches");
+
+                    b.Navigation("TacheCompetences");
 
                     b.Navigation("Tests");
                 });

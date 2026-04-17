@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-
+using GestionProjet.Enums;
 namespace GestionProjet.Models;
 
 public class Tache
@@ -22,7 +22,7 @@ public class Tache
     
     [Required]
     [StringLength(50)]
-    public string Statut { get; set; } = "À faire";
+    public StatutTache Statut { get; set; } = StatutTache.ADemarrer;
     
     [ForeignKey("PhaseId")]
     public virtual Phase Phase { get; set; } = null!;
@@ -34,7 +34,7 @@ public Employe? Responsable { get; set; }
 
 [ForeignKey("TesteurId")]
 public Employe? Testeur { get; set; }
-    
+    public virtual ICollection<TacheCompetence> TacheCompetences { get; set; } = new List<TacheCompetence>();
     public virtual ICollection<SousTache> SousTaches { get; set; } = new List<SousTache>();
     public virtual ICollection<Test> Tests { get; set; } = new List<Test>();
 }

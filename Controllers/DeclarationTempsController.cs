@@ -1,48 +1,47 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
-using System.Security.Claims;
 using GestionProjet.Data;
 using GestionProjet.Models;
-using GestionProjet.Enums;
-using GestionProjet.DTOs;
+using GestionProjet.Services;
+
 namespace GestionProjet.Controllers
-{[ApiController]
-[Route("api/[controller]")]
-public class DeclarationTempsController : ControllerBase
 {
-    private readonly ApplicationDbContext _context;
-
-    public DeclarationTempsController(ApplicationDbContext context)
+    [ApiController]
+    [Route("api/[controller]")]
+    public class DeclarationTempsController : ControllerBase
     {
-        _context = context;
-    }
+        private readonly ApplicationDbContext _context;
+        private readonly ProjetService _projetService;
 
-    [HttpPost]
-    [Authorize]
-    public async Task<IActionResult> DeclarerHeures([FromBody] CreateDeclarationTempsDto dto)
+        public DeclarationTempsController(ApplicationDbContext context,ProjetService projetService)
+        {
+            _context = context;
+            _projetService = projetService;
+        }
+
+       [HttpPost]
+[Authorize]
+public async Task<IActionResult> DeclarerHeures([FromBody] CreateDeclarationTempsDto dto)
+{
+    try
     {
         var employeId = User.FindFirst("EmployeId")?.Value;
 
         if (string.IsNullOrEmpty(employeId))
-            return Unauthorized("EmployeId introuvable");
+            return Unauthorized();
 
         int empId = int.Parse(employeId);
 
-        // 🔍 vérifier que la sous-tâche existe
         var sousTache = await _context.SousTaches
             .Include(st => st.Tache)
+                .ThenInclude(t => t.Phase)
             .FirstOrDefaultAsync(st => st.Id == dto.SousTacheId);
 
         if (sousTache == null)
-            return NotFound("Sous-tâche introuvable");
+            return NotFound();
 
-        // 🔒 sécurité : vérifier que l’employé est assigné à la tâche
-        if (sousTache.Tache.ResponsableId != empId &&
-            sousTache.Tache.TesteurId != empId)
-        {
-            return BadRequest("Vous n'êtes pas assigné à cette tâche");
-        }
+        int projetId = sousTache.Tache.Phase.ProjetId;
 
         var declaration = new DeclarationTemps
         {
@@ -56,6 +55,14 @@ public class DeclarationTempsController : ControllerBase
         _context.DeclarationsTemps.Add(declaration);
         await _context.SaveChangesAsync();
 
-        return Ok(new { message = "Heures déclarées avec succès" });
+       
+        await _projetService.MettreAJourProjet(projetId);
+
+        return Ok("Heures déclarées + projet mis à jour");
+    }
+    catch (Exception ex)
+    {
+        return StatusCode(500, ex.Message);
     }
 }}
+}

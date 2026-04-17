@@ -18,6 +18,7 @@ builder.Services.AddControllers()
         );
     });
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddScoped<StatutService>();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new() { Title = "GestionProjet API", Version = "v1" });
@@ -126,7 +127,12 @@ builder.Services.AddAuthentication(options =>
 });
 
 builder.Services.AddScoped<IJwtService, JwtService>();
-
+builder.Services.AddScoped<NotificationService>();
+builder.Services.AddHostedService<NotificationBackgroundService>();
+builder.Services.AddScoped<ProjetService>();
+builder.Services.AddScoped<LoadBalancingService>();
+builder.Services.AddHttpClient<GroqService>();
+builder.Services.AddScoped<GroqService>();
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())

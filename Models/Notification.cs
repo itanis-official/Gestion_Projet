@@ -20,6 +20,7 @@ public class Notification
     public DateTime DateEnvoi { get; set; }
     
     public bool Lu { get; set; } = false;
+    public int? ProjetId { get; set; }
     
     [ForeignKey("EmployeId")]
     public virtual Employe Employe { get; set; } = null!;

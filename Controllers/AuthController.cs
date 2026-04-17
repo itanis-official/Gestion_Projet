@@ -95,7 +95,7 @@ public class AuthController : ControllerBase
         // 🔥 IMPORTANT: reload user to ensure EF + Identity sync
         user = await _userManager.FindByIdAsync(user.Id);
 
-        await _userManager.AddToRoleAsync(user, "User");
+        await _userManager.AddToRoleAsync(user, "Employe");
 
         var roles = await _userManager.GetRolesAsync(user);
 

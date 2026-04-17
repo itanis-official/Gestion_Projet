@@ -1,5 +1,3 @@
-using GestionProjet.Enums;
-
 namespace GestionProjet.DTOs;
 
 public class PhaseDetailDto
