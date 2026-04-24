@@ -1,3 +1,7 @@
+using GestionProjet.Services;
+
+namespace GestionProjet.Services;
+
 public class NotificationBackgroundService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;

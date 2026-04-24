@@ -2,6 +2,8 @@ using GestionProjet.Data;
 using GestionProjet.Models;
 using Microsoft.EntityFrameworkCore;
 
+namespace GestionProjet.Services;
+
 public class NotificationService
 {
     private readonly ApplicationDbContext _context;

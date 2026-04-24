@@ -19,8 +19,7 @@ public class Phase
     public decimal PourcentageBudget { get; set; }
     
     [Required]
-    [StringLength(20)]
-  public StatutPhase Statut { get; set; } = StatutPhase.ADemarrer;
+    public StatutPhase Statut { get; set; } = StatutPhase.ADemarrer;
    
     [ForeignKey("ProjetId")]
     public virtual Projet Projet { get; set; } = null!;

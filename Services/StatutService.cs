@@ -2,6 +2,8 @@ using GestionProjet.Data;
 using GestionProjet.Enums;
 using Microsoft.EntityFrameworkCore;
 
+namespace GestionProjet.Services;
+
 public class StatutService
 {
     private readonly ApplicationDbContext _context;

@@ -1,4 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using GestionProjet.Services;
+
+namespace GestionProjet.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]

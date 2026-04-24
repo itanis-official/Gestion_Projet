@@ -5,6 +5,7 @@ using GestionProjet.Data;
 using GestionProjet.Models;
 using GestionProjet.Enums;
 using GestionProjet.DTOs;
+using GestionProjet.Services;
 namespace GestionProjet.Controllers
 {
     [ApiController]
@@ -166,7 +167,9 @@ public async Task<IActionResult> RejeterSousTache(int id, [FromBody] RejetSousTa
 [Authorize]
 public async Task<IActionResult> UpdateStatut(int id, [FromBody] UpdateStatutDto dto)
 {
-    var sousTache = await _context.SousTaches.FindAsync(id);
+    var sousTache = await _context.SousTaches
+        .Include(st => st.Tache)
+        .FirstOrDefaultAsync(st => st.Id == id);
 
     if (sousTache == null) return NotFound();
 

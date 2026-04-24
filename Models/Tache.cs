@@ -21,7 +21,6 @@ public class Tache
     public DateTime DateFinPrevue { get; set; }
     
     [Required]
-    [StringLength(50)]
     public StatutTache Statut { get; set; } = StatutTache.ADemarrer;
     
     [ForeignKey("PhaseId")]

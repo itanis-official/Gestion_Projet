@@ -23,6 +23,9 @@ public class Test
     
     [ForeignKey("TacheId")]
     public virtual Tache Tache { get; set; } = null!;
+
+    [ForeignKey("SousTacheId")]
+    public virtual SousTache SousTache { get; set; } = null!;
     
     [ForeignKey("EmployeId")]
     public virtual Employe Employe { get; set; } = null!;

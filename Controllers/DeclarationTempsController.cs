@@ -64,5 +64,6 @@ public async Task<IActionResult> DeclarerHeures([FromBody] CreateDeclarationTemp
     {
         return StatusCode(500, ex.Message);
     }
-}}
+}
+}
 }

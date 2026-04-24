@@ -7,6 +7,7 @@ public class Employe
 {
     [Key]
     public int Id { get; set; }
+    public int? IdOrigineRH { get; set; }
     
     [Required]
     [StringLength(150)]

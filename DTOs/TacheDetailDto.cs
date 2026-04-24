@@ -7,8 +7,8 @@ public class TacheDetailDto
     public string Statut { get; set; }
     public DateTime? DateDebutPrevue { get; set; }
     public DateTime? DateFinPrevue { get; set; }
-    public required EmployeDto Responsable { get; set; }
-    public EmployeDto Testeur { get; set; }
+    public EmployeDto? Responsable { get; set; }
+    public EmployeDto? Testeur { get; set; }
 
     public List<SousTacheSimplifieDto> SousTaches { get; set; } = new();
 }

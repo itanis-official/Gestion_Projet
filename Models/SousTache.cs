@@ -25,4 +25,5 @@ public class SousTache
     
     public virtual ICollection<Affectation> Affectations { get; set; } = new List<Affectation>();
     public virtual ICollection<DeclarationTemps> DeclarationsTemps { get; set; } = new List<DeclarationTemps>();
+    public virtual ICollection<Test> Tests { get; set; } = new List<Test>();
 }

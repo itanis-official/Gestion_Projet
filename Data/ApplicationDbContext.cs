@@ -113,6 +113,12 @@ public DbSet<TacheCompetence> TacheCompetences { get; set; }
             .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<Test>()
+            .HasOne(t => t.SousTache)
+            .WithMany(st => st.Tests)
+            .HasForeignKey(t => t.SousTacheId)
+            .OnDelete(DeleteBehavior.NoAction);
+
+        modelBuilder.Entity<Test>()
             .HasOne(t => t.Employe)
             .WithMany(e => e.TestsEffectues)
             .HasForeignKey(t => t.EmployeId)

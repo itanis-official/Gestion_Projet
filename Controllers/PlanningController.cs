@@ -1,248 +1,241 @@
 using Microsoft.AspNetCore.Mvc;
 using GestionProjet.DTOs.AI;
-using System.Text;
+using GestionProjet.Services;
+using System.Text.Json;
+
+namespace GestionProjet.Controllers;
 
 [ApiController]
 [Route("api/ai")]
 public class AiController : ControllerBase
 {
     private readonly GroqService _groq;
+    private readonly ILogger<AiController> _logger;
 
-    public AiController(GroqService groq)
+    public AiController(GroqService groq, ILogger<AiController> logger)
     {
         _groq = groq;
+        _logger = logger;
     }
 
     [HttpPost("generate-planning")]
     public async Task<IActionResult> Generate([FromBody] GeneratePlanningInput input)
     {
-        var prompt = BuildPrompt(input);
-        var jsonRaw = await _groq.GeneratePlanning(prompt);
+        try
+        {
+      
+            if (string.IsNullOrWhiteSpace(input.ProjetNom))
+            {
+                return BadRequest(new { message = "Le nom du projet est requis." });
+            }
 
-        using var doc = System.Text.Json.JsonDocument.Parse(jsonRaw);
-        var content = doc.RootElement
-            .GetProperty("choices")[0]
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString();
+            if (input.DateDebut == default || input.DateFinPrevue == default)
+            {
+                return BadRequest(new { message = "Les dates du projet sont requises." });
+            }
 
-        return Content(content, "application/json");
+            if (input.DateFinPrevue <= input.DateDebut)
+            {
+                return BadRequest(new { message = "La date de fin doit être après la date de début." });
+            }
+
+            _logger.LogInformation(
+                "Génération planning IA - Projet: {Nom}, Début: {Debut}, Fin: {Fin}, Membres: {Membres}",
+                input.ProjetNom, input.DateDebut.ToString("yyyy-MM-dd"),
+                input.DateFinPrevue.ToString("yyyy-MM-dd"),
+                input.EquipeDisponible?.Count ?? 0
+            );
+
+           
+            var prompt = BuildPrompt(input);
+
+            _logger.LogDebug("Prompt envoyé à Groq (longueur: {Length})", prompt.Length);
+
+           
+            var jsonRaw = await _groq.GeneratePlanning(prompt);
+
+            _logger.LogDebug("Réponse Groq reçue (longueur: {Length})", jsonRaw.Length);
+
+            
+            string? content;
+            try
+            {
+                using var doc = JsonDocument.Parse(jsonRaw);
+                var choices = doc.RootElement.GetProperty("choices");
+
+                if (choices.GetArrayLength() == 0)
+                {
+                    return StatusCode(502, new { message = "L'IA n'a retourné aucune réponse." });
+                }
+
+                content = choices[0]
+                    .GetProperty("message")
+                    .GetProperty("content")
+                    .GetString();
+
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    return StatusCode(502, new { message = "L'IA a retourné une réponse vide." });
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Erreur parsing réponse Groq");
+                return StatusCode(502, new
+                {
+                    message = "La réponse de l'IA n'est pas un JSON valide.",
+                    detail = ex.Message
+                });
+            }
+
+            try
+            {
+                using var validateDoc = JsonDocument.Parse(content);
+                if (!validateDoc.RootElement.TryGetProperty("phases", out _))
+                {
+                    return StatusCode(502, new
+                    {
+                        message = "L'IA n'a pas généré la structure attendue (phases manquantes).",
+                        preview = content.Length > 300 ? content.Substring(0, 300) + "..." : content
+                    });
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Le contenu généré par l'IA n'est pas du JSON valide");
+                return StatusCode(502, new
+                {
+                    message = "L'IA n'a pas généré du JSON valide.",
+                    preview = content.Length > 500 ? content.Substring(0, 500) + "..." : content
+                });
+            }
+            
+
+            return Content(content, "application/json");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erreur génération planning IA");
+
+            var message = ex.Message;
+
+            if (message.Contains("Groq API Error"))
+            {
+                return StatusCode(502, new
+                {
+                    message = "Erreur de communication avec l'IA (Groq).",
+                    detail = message
+                });
+            }
+
+            if (message.Contains("ApiKey") || message.Contains("401"))
+            {
+                return StatusCode(500, new
+                {
+                    message = "Clé API Groq invalide ou manquante. Vérifiez la configuration."
+                });
+            }
+
+            if (message.Contains("429"))
+            {
+                return StatusCode(429, new
+                {
+                    message = "Trop de requêtes vers l'IA. Patientez quelques secondes et réessayez."
+                });
+            }
+
+            if (message.Contains("timeout") || message.Contains("Task canceled"))
+            {
+                return StatusCode(504, new
+                {
+                    message = "L'IA met trop longtemps à répondre. Réessayez."
+                });
+            }
+
+            return StatusCode(500, new
+            {
+                message = "Erreur interne lors de la génération du planning.",
+                detail = message
+            });
+        }
     }
 
-  private string BuildPrompt(GeneratePlanningInput input)
+private string BuildPrompt(GeneratePlanningInput input)
 {
     var equipeText = BuildEquipeText(input.EquipeDisponible);
-
     var startDateStr = input.DateDebut.ToString("yyyy-MM-dd");
     var endDateStr = input.DateFinPrevue.ToString("yyyy-MM-dd");
-    var totalDays = (input.DateFinPrevue - input.DateDebut).Days;
 
-    var holidaysText = input.JoursFeries != null && input.JoursFeries.Any()
-        ? string.Join(", ", input.JoursFeries)
-        : "Aucun";
+    return $@"Tu es un Expert PMP. Génère un planning IT JSON pour '{input.ProjetNom}'.
 
-    return $@"
-Tu es un EXPERT en gestion de projets IT (niveau senior).
+--- RÈGLES DE CAPACITÉ STRICTES (ANTI-OVERLOAD) ---
+1. RÈGLE DES 8H : Un membre ne peut pas travailler plus de 8h par jour, TOUTES TÂCHES CONFONDUES.
+2. SÉQUENÇAGE : Si un membre a plusieurs tâches, elles ne doivent pas se chevaucher. La tâche B commence après la fin de la tâche A.
+3. CALCUL DE DURÉE : Pour une tâche de X heures, dateFin = dateDebut + (X / 8) jours ouvrés.
+4. SI SURCHARGE : Si le temps est trop court pour respecter les 8h/jour, tu DOIS réduire le nombre de sous-tâches ou alerter dans le 'resume'.
 
-🎯 OBJECTIF :
-Générer un planning COMPLET, RÉALISTE et OPTIMISÉ.
-
-========================
-📌 INFORMATIONS PROJET
-========================
-Nom: {input.ProjetNom}
-Description: {input.ProjetDescription ?? "Non spécifiée"}
-Type: {input.TypeProjet}
-Date début: {startDateStr}
-Date fin: {endDateStr}
-Durée totale: {totalDays} jours
-Budget: {input.BudgetEstime}
-
-========================
-👥 ÉQUIPE DISPONIBLE
-========================
+--- ÉQUIPE ---
 {equipeText}
 
-========================
-📅 JOURS FÉRIÉS
-========================
-{holidaysText}
+--- LOGIQUE TECHNIQUE ---
+- Phase Analyse : Focus sur les Specs. Compétences techniques [] souvent vides ici.
+- Phase MiseEnOeuvre : Utilise les compétences tech fournies (ex: TypeScript, Angular).
+- Jours Fériés à exclure : {string.Join(", ", input.JoursFeries ?? new List<string>())}.
 
-========================
-⚙️ RÈGLES STRICTES
-========================
-1. Générer TOUT le planning dynamiquement (phases, tâches, sous-tâches)
-2. Ne JAMAIS copier un exemple
-3. Adapter les tâches au type de projet: {input.TypeProjet}
-4. Utiliser UNIQUEMENT les IDs fournis
-5. Ne jamais inventer de membre
-6. Assigner selon compétences réelles
-7. Répartir la charge équitablement entre les membres
-8. Maximum 7h de travail par jour par personne
-9. Respecter STRICTEMENT les dates du projet
-10. Ne pas planifier pendant weekends et jours fériés
-11. Chaque tâche doit contenir 2 à 4 sous-tâches
-12. Ajouter des dépendances logiques entre tâches si nécessaire
-
-========================
-📊 STRUCTURE OBLIGATOIRE
-========================
-Phases dans cet ordre EXACT :
-- Analyse (15%)
-- Conception (20%)
-- MiseEnOeuvre (40%)
-- Validation (15%)
-- MiseEnService (10%)
-
-========================
-🧠 INTELLIGENCE ATTENDUE
-========================
-- Si projet Web → inclure frontend, backend, API
-- Si Mobile → inclure UI mobile, tests device
-- Si AI → inclure data, training, évaluation
-- Si Microservices → inclure architecture distribuée
-========================
-⚖️ RÉPARTITION DES TÂCHES (OBLIGATOIRE)
-========================
-
-- INTERDICTION d’assigner toutes les tâches à une seule personne
-- Répartir les tâches entre TOUS les membres disponibles
-- Chaque membre doit avoir au moins une tâche si possible
-
-- Calculer la charge de travail :
-  charge = somme(dureeEstimeHeures des tâches assignées)
-
-- Ne jamais dépasser :
-  7 heures par jour × nombre de jours travaillés
-
-- Si un membre dépasse la charge :
-  ➜ assigner automatiquement la tâche à un autre membre
-
-- Priorité d’assignation :
-  1. membre avec compétence correspondante
-  2. membre avec la PLUS FAIBLE charge actuelle
-
-- IMPORTANT :
-  Toujours équilibrer les tâches même si les compétences sont similaires
-
-========================
-📦 FORMAT DE RÉPONSE (JSON STRICT)
-========================
-IMPORTANT:
-- Répond UNIQUEMENT avec du JSON
-- AUCUN texte avant ou après
-- JSON valide (commence par {{ et finit par }})
-- Toutes les propriétés doivent être présentes
-
+--- FORMAT JSON ---
 {{
   ""phases"": [
     {{
-      ""typePhase"": ""Analyse"",
-      ""pourcentageBudget"": 15,
-      ""description"": ""string"",
+      ""typePhase"": ""MiseEnOeuvre"",
       ""taches"": [
         {{
-          ""titre"": ""string"",
+          ""titre"": ""Développement Frontend"",
           ""dateDebutPrevue"": ""yyyy-MM-dd"",
           ""dateFinPrevue"": ""yyyy-MM-dd"",
-          ""dureeEstimeHeures"": number,
-          ""competencesRequises"": [""string""],
-          ""responsableId"": number,
-          ""responsableNom"": ""string"",
-          ""testeurId"": number,
-          ""testeurNom"": ""string"",
-          ""dependances"": [""string""],
-          ""priorite"": ""Haute"",
+          ""responsableId"": 1,
+          ""competencesRequises"": [""Angular""],
           ""sousTaches"": [
-            {{
-              ""titre"": ""string"",
-              ""dureeEstimeeHeures"": number,
-              ""statut"": ""AFaire"",
-              ""description"": ""string""
-            }}
+            {{ ""titre"": ""Composant Home"", ""dureeEstimeeHeures"": 16 }}
           ]
         }}
       ]
     }}
   ],
-  ""resume"": ""string"",
-  ""suggestions"": {{
-    ""alertes"": [""string""],
-    ""recommandations"": [""string""],
-    ""risques"": [""string""]
-  }},
-  ""statsGlobales"": {{
-    ""totalTaches"": number,
-    ""totalSousTaches"": number,
-    ""totalHeures"": number,
-    ""tauxCouvertureEquipe"": number
-  }}
+  ""resume"": ""Explication de la stratégie de lissage de charge.""
 }}";
 }
-    private string BuildEquipeText(List<MembreDisponible> equipe)
-    {
-        if (equipe == null || !equipe.Any())
-        {
-            return "Aucun membre disponible - laisser responsableId = null";
-        }
+private int CalculateWorkDays(DateTime start, DateTime end, List<string>? joursFeries)
+{
+    int count = 0;
+    var current = start;
+    var holidays = new HashSet<string>(joursFeries ?? new List<string>());
 
-        var sb = new StringBuilder();
-        sb.AppendLine($"L'équipe dispose de {equipe.Count} membre(s) :");
-        foreach (var m in equipe)
-        {
-            var competences = m.Competences != null && m.Competences.Any() 
-                ? string.Join(", ", m.Competences) 
-                : "Aucune compétence spécifiée";
-            sb.AppendLine($"- ID: {m.Id} | {m.Nom} | Rôle: {m.Role} | Compétences: {competences}");
-        }
-        return sb.ToString();
+    while (current <= end)
+    {
+        var isWeekend = current.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+        var dateStr = current.ToString("yyyy-MM-dd");
+        var isHoliday = holidays.Contains(dateStr);
+
+        if (!isWeekend && !isHoliday) count++;
+        current = current.AddDays(1);
     }
 
-    private int GetFirstMemberId(List<MembreDisponible> equipe)
-    {
-        return equipe != null && equipe.Any() ? equipe.First().Id : 0;
-    }
+    return Math.Max(1, count);
+}
 
-    private string GetFirstMemberName(List<MembreDisponible> equipe)
-    {
-        return equipe != null && equipe.Any() ? equipe.First().Nom : "Non assigné";
-    }
+private string BuildEquipeText(List<MembreDisponible>? equipe)
+{
+    if (equipe == null || equipe.Count == 0)
+        return "Aucun membre - mettre responsableId = null";
 
-    private int GetSecondMemberId(List<MembreDisponible> equipe)
+    var lines = equipe.Select(m =>
     {
-        if (equipe == null || equipe.Count < 2) return GetFirstMemberId(equipe);
-        return equipe.Skip(1).First().Id;
-    }
+        var comps = m.Competences?.Any() == true
+            ? string.Join(", ", m.Competences)
+            : "Aucune";
+        return $"- ID:{m.Id} | {m.Nom} | {m.Role} | {comps}";
+    });
 
-    private string GetSecondMemberName(List<MembreDisponible> equipe)
-    {
-        if (equipe == null || equipe.Count < 2) return GetFirstMemberName(equipe);
-        return equipe.Skip(1).First().Nom;
-    }
-
-    private int GetDesignerId(List<MembreDisponible> equipe)
-    {
-        if (equipe == null || !equipe.Any()) return 0;
-        
-        var designer = equipe.FirstOrDefault(m => 
-            m.Competences != null && 
-            m.Competences.Any(c => c.Contains("UI", StringComparison.OrdinalIgnoreCase) ||
-                                   c.Contains("UX", StringComparison.OrdinalIgnoreCase) ||
-                                   c.Contains("Design", StringComparison.OrdinalIgnoreCase)));
-        
-        return designer?.Id ?? GetFirstMemberId(equipe);
-    }
-
-    private string GetDesignerName(List<MembreDisponible> equipe)
-    {
-        if (equipe == null || !equipe.Any()) return "Non assigné";
-        
-        var designer = equipe.FirstOrDefault(m => 
-            m.Competences != null && 
-            m.Competences.Any(c => c.Contains("UI", StringComparison.OrdinalIgnoreCase) ||
-                                   c.Contains("UX", StringComparison.OrdinalIgnoreCase) ||
-                                   c.Contains("Design", StringComparison.OrdinalIgnoreCase)));
-        
-        return designer?.Nom ?? GetFirstMemberName(equipe);
-    }
+    return string.Join("\n", lines);
+}
 }

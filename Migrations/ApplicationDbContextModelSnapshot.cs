@@ -53,25 +53,34 @@ namespace GestionProjet.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Contact")
-                        .IsRequired()
+                    b.Property<string>("EmailPrincipal")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                    b.Property<string>("Pays")
+                        .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("Nom")
+                    b.Property<string>("RaisonSociale")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("Nom");
 
-                    b.Property<string>("Telephone")
-                        .IsRequired()
+                    b.Property<string>("Secteur")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Statut")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("SyncedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("TelephonePrincipal")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Ville")
+                        .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
@@ -168,6 +177,9 @@ namespace GestionProjet.Migrations
                     b.Property<int?>("GroupeEquipeId")
                         .HasColumnType("int");
 
+                    b.Property<int?>("IdOrigineRH")
+                        .HasColumnType("int");
+
                     b.Property<string>("NomComplet")
                         .IsRequired()
                         .HasMaxLength(150)
@@ -234,6 +246,12 @@ namespace GestionProjet.Migrations
                     b.Property<int?>("ChefEquipeId")
                         .HasColumnType("int");
 
+                    b.Property<Guid>("EquipeGuid")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("IdOrigineRH")
+                        .HasColumnType("int");
+
                     b.Property<string>("Nom")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -242,6 +260,9 @@ namespace GestionProjet.Migrations
                     b.Property<string>("TypeProjetCompatible")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
 
                     b.HasKey("Id");
 
@@ -305,7 +326,6 @@ namespace GestionProjet.Migrations
                         .HasColumnType("int");
 
                     b.Property<int>("Statut")
-                        .HasMaxLength(20)
                         .HasColumnType("int");
 
                     b.Property<int>("TypePhase")
@@ -359,6 +379,9 @@ namespace GestionProjet.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("OpportuniteIdOrigine")
+                        .HasColumnType("int");
 
                     b.Property<int>("Statut")
                         .HasColumnType("int");
@@ -468,7 +491,6 @@ namespace GestionProjet.Migrations
                         .HasColumnType("int");
 
                     b.Property<int>("Statut")
-                        .HasMaxLength(50)
                         .HasColumnType("int");
 
                     b.Property<int?>("TesteurId")
@@ -550,6 +572,8 @@ namespace GestionProjet.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("EmployeId");
+
+                    b.HasIndex("SousTacheId");
 
                     b.HasIndex("TacheId");
 
@@ -967,6 +991,12 @@ namespace GestionProjet.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("GestionProjet.Models.SousTache", "SousTache")
+                        .WithMany("Tests")
+                        .HasForeignKey("SousTacheId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
                     b.HasOne("GestionProjet.Models.Tache", "Tache")
                         .WithMany("Tests")
                         .HasForeignKey("TacheId")
@@ -974,6 +1004,8 @@ namespace GestionProjet.Migrations
                         .IsRequired();
 
                     b.Navigation("Employe");
+
+                    b.Navigation("SousTache");
 
                     b.Navigation("Tache");
                 });
@@ -1086,6 +1118,8 @@ namespace GestionProjet.Migrations
                     b.Navigation("Affectations");
 
                     b.Navigation("DeclarationsTemps");
+
+                    b.Navigation("Tests");
                 });
 
             modelBuilder.Entity("GestionProjet.Models.Tache", b =>

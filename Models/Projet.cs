@@ -41,6 +41,7 @@ public class Projet
     
     [ForeignKey("ClientId")]
     public virtual Client Client { get; set; } = null!;
+    public int? OpportuniteIdOrigine { get; set; }
 public int? GroupeEquipeId { get; set; }   
 [ForeignKey("GroupeEquipeId")]
 public virtual GroupeEquipe? GroupeEquipe { get; set; }

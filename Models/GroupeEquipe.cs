@@ -7,7 +7,7 @@ public class GroupeEquipe
 {
     [Key]
     public int Id { get; set; }
-    
+    public int? IdOrigineRH { get; set; }
     [Required]
     [StringLength(100)]
     public string Nom { get; set; } = string.Empty;
@@ -21,4 +21,7 @@ public class GroupeEquipe
     public virtual Employe? ChefEquipe { get; set; }
     
     public virtual ICollection<Employe> Employes { get; set; } = new List<Employe>();
+    public Guid EquipeGuid { get; set; } = Guid.NewGuid();
+   
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

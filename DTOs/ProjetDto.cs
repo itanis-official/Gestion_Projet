@@ -1,4 +1,4 @@
-using GestionProjet.DTOs;
+namespace GestionProjet.DTOs;
 
 public class ProjetDetailDto
 {

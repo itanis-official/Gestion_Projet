@@ -7,6 +7,13 @@ using GestionProjet.Data;
 using GestionProjet.Models;
 using GestionProjet.Services;
 using GestionProjet.Services.Interfaces;
+using MassTransit;
+using GestionProjet.Consumers;
+using dotenv.net; 
+
+// ===== AJOUTE CECI AU TOUT DÉBUT =====
+DotEnv.Load(options: new DotEnvOptions(envFilePaths: new[] { ".env" }));
+// ======================================
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,8 +68,15 @@ builder.Services.AddCors(options =>
 });
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-var password = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "Erp!2026";
-connectionString = connectionString?.Replace("${DB_PASSWORD}", password);
+
+// Lecture du mot de passe depuis les variables d'environnement (chargées via .env)
+var password = Environment.GetEnvironmentVariable("DB_PASSWORD") ;
+
+// Remplacement dans la chaîne de connexion
+if (!string.IsNullOrEmpty(connectionString) && !string.IsNullOrEmpty(password))
+{
+    connectionString = connectionString.Replace("${DB_PASSWORD}", password);
+}
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
@@ -84,8 +98,13 @@ builder.Services.AddIdentity<Utilisateur, IdentityRole>(options =>
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
 
+// Configuration JWT
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 builder.Services.Configure<JwtSettings>(jwtSettings);
+
+// Récupération de la clé Groq depuis .env
+var groqApiKey = Environment.GetEnvironmentVariable("GROQ_API_KEY") ?? builder.Configuration["Groq:ApiKey"];
+builder.Configuration["Groq:ApiKey"] = groqApiKey;
 
 var key = Encoding.UTF8.GetBytes(jwtSettings["Secret"] ?? throw new InvalidOperationException("JWT Secret non configuré"));
 builder.Services.AddAuthentication(options =>
@@ -131,8 +150,34 @@ builder.Services.AddScoped<NotificationService>();
 builder.Services.AddHostedService<NotificationBackgroundService>();
 builder.Services.AddScoped<ProjetService>();
 builder.Services.AddScoped<LoadBalancingService>();
+builder.Services.AddScoped<PlanningIAService>();
 builder.Services.AddHttpClient<GroqService>();
-builder.Services.AddScoped<GroqService>();
+builder.Services.AddScoped<ProjetSyncService>();
+
+// Configuration MassTransit
+builder.Services.AddMassTransit(x =>
+{
+    x.AddConsumer<OpportuniteConvertieConsumer>();
+    x.AddConsumer<CompanySyncConsumer>();   
+    x.AddConsumer<AgentSyncConsumer>();     
+
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        cfg.Host("51.254.133.231", 31672, "/", h =>
+        {
+            h.Username("admin");
+            h.Password("rabbitMQ-dev");
+        });
+
+        cfg.ReceiveEndpoint("gestion-projet-opportunite", e =>
+        {
+            e.ConfigureConsumer<OpportuniteConvertieConsumer>(context);
+        });
+
+        cfg.ConfigureEndpoints(context); 
+    });
+});
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
