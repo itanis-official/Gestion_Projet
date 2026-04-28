@@ -22,4 +22,5 @@ public class RegisterDto
     public string? Poste { get; set; }
     
     public string? Departement { get; set; }
+      public int? EmployeId { get; set; }
 }

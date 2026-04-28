@@ -9,7 +9,12 @@ using GestionProjet.Services;
 using GestionProjet.Services.Interfaces;
 using MassTransit;
 using GestionProjet.Consumers;
-using dotenv.net; 
+using dotenv.net;
+
+// ===== AJOUT DE CES NAMESPACES POUR SERVIR LES PDFS =====
+using Microsoft.Extensions.FileProviders;
+using System.IO;
+// =======================================================
 
 // ===== AJOUTE CECI AU TOUT DÉBUT =====
 DotEnv.Load(options: new DotEnvOptions(envFilePaths: new[] { ".env" }));
@@ -160,7 +165,7 @@ builder.Services.AddMassTransit(x =>
     x.AddConsumer<OpportuniteConvertieConsumer>();
     x.AddConsumer<CompanySyncConsumer>();   
     x.AddConsumer<AgentSyncConsumer>();     
-
+    x.AddConsumer<TypeProjetSyncEventConsumer>();
     x.UsingRabbitMq((context, cfg) =>
     {
         cfg.Host("51.254.133.231", 31672, "/", h =>
@@ -186,10 +191,25 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseStaticFiles(); // <--- Nécessaire pour servir les fichiers par défaut (React, etc.)
+
+// ================================================================
+// AJOUT POUR SERVIR LES PDFs DU DOSSIER UPLOADS
+// ================================================================
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(
+        Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads")),
+    RequestPath = "/uploads"
+});
+// ================================================================
+
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Note : MapControllers n'est appelé qu'une fois ici (j'ai supprimé le doublon en bas)
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())

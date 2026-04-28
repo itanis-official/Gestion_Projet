@@ -9,6 +9,7 @@ namespace GestionProjet.DTOs.AI
         public DateTime DateFinPrevue { get; set; }
         public decimal BudgetEstime { get; set; }
         public List<MembreDisponible> EquipeDisponible { get; set; } = new();
+        public int? ProjetId { get; set; } 
         public List<string>? JoursFeries { get; set; }
     }
 

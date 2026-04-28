@@ -34,92 +34,118 @@ public class AuthController : ControllerBase
     }
 
     // ========================= REGISTER =========================
-    [HttpPost("register")]
-    public async Task<ActionResult<AuthResponseDto>> Register(RegisterDto registerDto)
+   
+  [HttpPost("register")]
+public async Task<ActionResult<AuthResponseDto>> Register(RegisterDto registerDto)
+{
+    if (!ModelState.IsValid)
+        return BadRequest(ModelState);
+
+    // Vérifier si l'email est déjà utilisé
+    var existingUser = await _userManager.FindByEmailAsync(registerDto.Email);
+    if (existingUser != null)
     {
-        if (!ModelState.IsValid)
-            return BadRequest(ModelState);
-
-        var existingUser = await _userManager.FindByEmailAsync(registerDto.Email);
-        if (existingUser != null)
+        return BadRequest(new AuthResponseDto
         {
-            return BadRequest(new AuthResponseDto
-            {
-                Success = false,
-                Message = "Email déjà utilisé"
-            });
-        }
-
-        var user = new Utilisateur
-        {
-            UserName = registerDto.Email,
-            Email = registerDto.Email,
-            NomComplet = registerDto.NomComplet,
-            Poste = registerDto.Poste,
-            Departement = registerDto.Departement,
-            DateCreation = DateTime.UtcNow,
-            EstActif = true
-        };
-
-        var result = await _userManager.CreateAsync(user, registerDto.Password);
-
-        if (!result.Succeeded)
-        {
-            return BadRequest(new AuthResponseDto
-            {
-                Success = false,
-                Errors = result.Errors.Select(e => e.Description).ToList()
-            });
-        }
-
-        // ================= CREATE / LINK EMPLOYE =================
-        var employe = await _context.Employes.FirstOrDefaultAsync(e => e.Email == user.Email);
-
-        if (employe == null)
-        {
-            employe = new Employe
-            {
-                NomComplet = user.NomComplet,
-                Email = user.Email,
-                Role = "Employe"
-            };
-
-            _context.Employes.Add(employe);
-            await _context.SaveChangesAsync();
-        }
-
-        // LINK
-        user.EmployeId = employe.Id;
-        await _userManager.UpdateAsync(user);
-
-        // 🔥 IMPORTANT: reload user to ensure EF + Identity sync
-        user = await _userManager.FindByIdAsync(user.Id);
-
-        await _userManager.AddToRoleAsync(user, "Employe");
-
-        var roles = await _userManager.GetRolesAsync(user);
-
-        var token = _jwtService.GenerateJwtToken(user, roles);
-        var refreshToken = _jwtService.GenerateRefreshToken();
-
-        await SaveRefreshToken(user.Id, refreshToken);
-
-        return Ok(new AuthResponseDto
-        {
-            Success = true,
-            Message = "Inscription réussie",
-            Token = token,
-            RefreshToken = refreshToken,
-            Expiration = DateTime.UtcNow.AddMinutes(
-                _configuration.GetValue<int>("JwtSettings:ExpirationInMinutes")
-            ),
-            UserId = user.Id,
-            Email = user.Email,
-            NomComplet = user.NomComplet,
-            Roles = roles.ToList()
+            Success = false,
+            Message = "Email déjà utilisé"
         });
     }
 
+    Employe? employe = null;
+    
+    // Si un EmployeId est fourni, vérifier que l'employé existe
+    if (registerDto.EmployeId.HasValue)
+    {
+        employe = await _context.Employes
+            .FirstOrDefaultAsync(e => e.Id == registerDto.EmployeId.Value);
+        
+        if (employe == null)
+        {
+            return BadRequest(new AuthResponseDto
+            {
+                Success = false,
+                Message = $"Aucun employé trouvé avec l'ID {registerDto.EmployeId}"
+            });
+        }
+        
+        // Vérifier si l'employé n'a pas déjà un compte
+        var userWithEmploye = await _userManager.Users
+            .FirstOrDefaultAsync(u => u.EmployeId == employe.Id);
+        
+        if (userWithEmploye != null)
+        {
+            return BadRequest(new AuthResponseDto
+            {
+                Success = false,
+                Message = $"L'employé {employe.NomComplet} a déjà un compte utilisateur"
+            });
+        }
+    }
+
+    var user = new Utilisateur
+    {
+        UserName = registerDto.Email,
+        Email = registerDto.Email,
+        NomComplet = registerDto.NomComplet,
+        Poste = registerDto.Poste,
+        Departement = registerDto.Departement,
+        DateCreation = DateTime.UtcNow,
+        EstActif = true,
+        EmployeId = employe?.Id // Lier à l'employé existant si fourni
+    };
+
+    var result = await _userManager.CreateAsync(user, registerDto.Password);
+
+    if (!result.Succeeded)
+    {
+        return BadRequest(new AuthResponseDto
+        {
+            Success = false,
+            Errors = result.Errors.Select(e => e.Description).ToList()
+        });
+    }
+
+    // Si aucun employeId n'a été fourni, créer un nouvel employé
+    if (employe == null)
+    {
+        employe = new Employe
+        {
+            NomComplet = user.NomComplet,
+            Email = user.Email,
+            Role = "Employe"
+        };
+
+        _context.Employes.Add(employe);
+        await _context.SaveChangesAsync();
+        
+        // Mettre à jour l'EmployeId de l'utilisateur
+        user.EmployeId = employe.Id;
+        await _userManager.UpdateAsync(user);
+    }
+
+    await _userManager.AddToRoleAsync(user, "Employe");
+
+    var roles = await _userManager.GetRolesAsync(user);
+    var token = _jwtService.GenerateJwtToken(user, roles);
+    var refreshToken = _jwtService.GenerateRefreshToken();
+    await SaveRefreshToken(user.Id, refreshToken);
+
+    return Ok(new AuthResponseDto
+    {
+        Success = true,
+        Message = "Inscription réussie",
+        Token = token,
+        RefreshToken = refreshToken,
+        Expiration = DateTime.UtcNow.AddMinutes(
+            _configuration.GetValue<int>("JwtSettings:ExpirationInMinutes")
+        ),
+        UserId = user.Id,
+        Email = user.Email,
+        NomComplet = user.NomComplet,
+        Roles = roles.ToList()
+    });
+}
     // ========================= LOGIN =========================
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponseDto>> Login(LoginDto loginDto)
@@ -258,4 +284,5 @@ public class AuthController : ControllerBase
 
         await _context.SaveChangesAsync();
     }
+    
 }

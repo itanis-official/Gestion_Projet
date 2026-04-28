@@ -8,6 +8,6 @@ public class CreateTacheDto
 
     public int? ResponsableId { get; set; }
     public int? TesteurId { get; set; }
-
+    public List<string> CompetencesRequises { get; set; } = new(); 
     public List<CreateSousTacheDto> SousTaches { get; set; } = new();
 }

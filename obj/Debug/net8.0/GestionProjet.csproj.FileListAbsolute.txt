@@ -229,3 +229,9 @@ C:\Users\user\Desktop\PFE\GestionProjet\obj\Debug\net8.0\GestionProjet.pdb
 C:\Users\user\Desktop\PFE\GestionProjet\obj\Debug\net8.0\GestionProjet.genruntimeconfig.cache
 C:\Users\user\Desktop\PFE\GestionProjet\obj\Debug\net8.0\ref\GestionProjet.dll
 C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\dotenv.net.dll
+C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\GestionProjet.staticwebassets.runtime.json
+C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\UglyToad.PdfPig.dll
+C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\UglyToad.PdfPig.Core.dll
+C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\UglyToad.PdfPig.Fonts.dll
+C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\UglyToad.PdfPig.Tokenization.dll
+C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\UglyToad.PdfPig.Tokens.dll

@@ -33,7 +33,8 @@ public class Projet
     
     [Column(TypeName = "decimal(18,2)")]
     public decimal? BudgetReel { get; set; }
-    
+     [StringLength(1024)] // Une URL peut être longue
+    public string? CdcFileUrl { get; set; }
     [StringLength(50)]
     public string TypeProjet { get; set; } = string.Empty;
     

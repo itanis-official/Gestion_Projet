@@ -1,0 +1,29 @@
+{
+  "Files": [
+    {
+      "Id": "C:\\Users\\user\\Desktop\\PFE\\GestionProjet\\wwwroot\\uploads\\cdc\\cahierdescharges-site-ecommerce-20260424120519233.pdf",
+      "PackagePath": "staticwebassets\\uploads\\cdc\\cahierdescharges-site-ecommerce-20260424120519233.pdf"
+    },
+    {
+      "Id": "C:\\Users\\user\\Desktop\\PFE\\GestionProjet\\wwwroot\\uploads\\cdc\\cahierdescharges-site-ecommerce-20260428084710851.pdf",
+      "PackagePath": "staticwebassets\\uploads\\cdc\\cahierdescharges-site-ecommerce-20260428084710851.pdf"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.GestionProjet.Microsoft.AspNetCore.StaticWebAssets.props",
+      "PackagePath": "build\\Microsoft.AspNetCore.StaticWebAssets.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.build.GestionProjet.props",
+      "PackagePath": "build\\GestionProjet.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildMultiTargeting.GestionProjet.props",
+      "PackagePath": "buildMultiTargeting\\GestionProjet.props"
+    },
+    {
+      "Id": "obj\\Debug\\net8.0\\staticwebassets\\msbuild.buildTransitive.GestionProjet.props",
+      "PackagePath": "buildTransitive\\GestionProjet.props"
+    }
+  ],
+  "ElementsToRemove": []
+}

@@ -9,7 +9,7 @@ public class TacheDetailDto
     public DateTime? DateFinPrevue { get; set; }
     public EmployeDto? Responsable { get; set; }
     public EmployeDto? Testeur { get; set; }
-
+    public List<string> CompetencesRequises { get; set; } = new(); 
     public List<SousTacheSimplifieDto> SousTaches { get; set; } = new();
 }
 

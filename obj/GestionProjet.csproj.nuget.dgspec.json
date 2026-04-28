@@ -95,6 +95,10 @@
               "target": "Package",
               "version": "[7.7.1, )"
             },
+            "UglyToad.PdfPig": {
+              "target": "Package",
+              "version": "[1.7.0-custom-5, )"
+            },
             "dotenv.net": {
               "target": "Package",
               "version": "[4.0.2, )"

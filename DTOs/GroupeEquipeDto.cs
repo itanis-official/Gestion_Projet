@@ -9,5 +9,6 @@ public class GroupeEquipeDto
 
 public class GroupeEquipeDetailDto : GroupeEquipeDto
 {
+public int? ChefEquipeId { get; set; } 
     public List<EmployeSimplifieDto> Employes { get; set; } = new();
 }

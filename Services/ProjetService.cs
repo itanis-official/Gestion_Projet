@@ -1,18 +1,21 @@
 using Microsoft.EntityFrameworkCore;
 using GestionProjet.Data;
 using GestionProjet.Enums;
+using ITANIS.SharedEvents;
 
 namespace GestionProjet.Services;
 
 public class ProjetService
 {
-    private readonly ApplicationDbContext _context;
+  private readonly ApplicationDbContext _context;
+    private readonly ProjetSyncService _projetSyncService; 
 
-    public ProjetService(ApplicationDbContext context)
+    // 🔥 2. Injecter ProjetSyncService dans le constructeur
+    public ProjetService(ApplicationDbContext context, ProjetSyncService projetSyncService)
     {
         _context = context;
+        _projetSyncService = projetSyncService;
     }
-
     // =========================
     // 🔥 1. CALCUL BUDGET (basé sur les sous-tâches validées)
     // =========================
@@ -92,15 +95,26 @@ public class ProjetService
         if (projet == null)
             throw new Exception("Projet introuvable");
 
-        // 🔥 Budget réel
+        // Calcul des nouvelles valeurs
         projet.BudgetReel = await CalculerBudget(projetId);
-
-        // 🔥 Statut
         projet.Statut = await CalculerStatut(projetId);
 
+        // Sauvegarde en base de données
         await _context.SaveChangesAsync();
-    }
 
+        // 🔥 4. ENVOI AU CRM : On publie l'événement pour informer le CRM du changement
+        // On utilise SyncAction.Update car le projet (et son prix) a été modifié.
+        try 
+        {
+            await _projetSyncService.PublierVersCRM(projetId, SyncAction.Updated);
+        }
+        catch (Exception ex)
+        {
+            // Log l'erreur mais ne pas crasher l'application si le CRM est down
+            // Idéalement, utilisez ici un ILogger
+            Console.WriteLine($"Erreur lors de la sync CRM pour le projet {projetId}: {ex.Message}");
+        }
+    }
     // =========================
     // 🔥 4. RECALCULER TOUS LES PROJETS
     // =========================

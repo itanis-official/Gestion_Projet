@@ -24,6 +24,7 @@ public class ApplicationDbContext : IdentityDbContext<Utilisateur>
     public DbSet<DeclarationTemps> DeclarationsTemps { get; set; }
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<RefreshToken> RefreshTokens { get; set; }
+    public DbSet<TypeProjet> TypesProjet { get; set; }
     
     // ==================== NOUVEAUX DbSet ====================
    public DbSet<Competence> Competences { get; set; }
@@ -184,5 +185,9 @@ public DbSet<TacheCompetence> TacheCompetences { get; set; }
             
         modelBuilder.Entity<RefreshToken>()
             .HasIndex(rt => rt.UserId);
+
+        modelBuilder.Entity<TypeProjet>()
+            .HasIndex(t => t.TypeProjetGuid)
+            .IsUnique();
     }
 }
