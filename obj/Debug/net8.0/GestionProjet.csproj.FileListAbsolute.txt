@@ -235,3 +235,6 @@ C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\UglyToad.PdfPig.Core.dl
 C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\UglyToad.PdfPig.Fonts.dll
 C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\UglyToad.PdfPig.Tokenization.dll
 C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\UglyToad.PdfPig.Tokens.dll
+C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\DocumentFormat.OpenXml.dll
+C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\DocumentFormat.OpenXml.Framework.dll
+C:\Users\user\Desktop\PFE\GestionProjet\bin\Debug\net8.0\System.IO.Packaging.dll

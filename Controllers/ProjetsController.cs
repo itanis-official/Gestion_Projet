@@ -19,13 +19,50 @@ namespace GestionProjet.Controllers
         public ProjetsController(
             ApplicationDbContext context,
             NotificationService service,
-            ProjetSyncService syncService)                // ← AJOUT
+            ProjetSyncService syncService)              
         {
             _context = context;
             _notificationService = service;
             _syncService = syncService;
         }
+[HttpPost("upload-cdc/{projectId}")]
+public async Task<IActionResult> UploadCdc(int projectId, IFormFile file)
+{
+    var projet = await _context.Projets.FindAsync(projectId);
+    if (projet == null) return NotFound(new { message = "Projet non trouvé" });
 
+    if (file == null || file.Length == 0)
+        return BadRequest(new { message = "Aucun fichier fourni" });
+
+    var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+    if (extension != ".pdf" && extension != ".docx")
+        return BadRequest(new { message = "Seuls les fichiers PDF et DOCX sont acceptés." });
+
+    try
+    {
+        var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "cdc");
+        if (!Directory.Exists(uploadsFolder))
+            Directory.CreateDirectory(uploadsFolder);
+
+     
+        var safeFileName = $"{projectId}_{Guid.NewGuid()}{extension}";
+        var filePath = Path.Combine(uploadsFolder, safeFileName);
+
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        projet.CdcFileUrl = $"/uploads/cdc/{safeFileName}";
+        await _context.SaveChangesAsync();
+
+        return Ok(new { cdcFileUrl = projet.CdcFileUrl });
+    }
+    catch (Exception ex)
+    {
+        return StatusCode(500, new { message = "Erreur lors de la sauvegarde du fichier" });
+    }
+}
         [HttpGet("mes-projets-chef")]
         [Authorize]
         public async Task<ActionResult> GetMesProjetsChef()
@@ -108,7 +145,7 @@ public async Task<IActionResult> GetProjetById(int id)
         .Include(p => p.Phases)
             .ThenInclude(ph => ph.Taches)
                 .ThenInclude(t => t.SousTaches)
-        // ⭐ AJOUT CRITIQUE : Charger les compétences des tâches
+        
         .Include(p => p.Phases)
             .ThenInclude(ph => ph.Taches)
                 .ThenInclude(t => t.TacheCompetences)
@@ -121,6 +158,7 @@ public async Task<IActionResult> GetProjetById(int id)
     var dto = MapToProjetDetailDto(projet);
     return Ok(dto);
 }
+
         private string CalculateProjectStatus(Projet projet)
         {
             var allSubTasks = projet.Phases
@@ -236,7 +274,6 @@ public async Task<IActionResult> GetProjetById(int id)
                     Email = t.Testeur.Email,
                     Role = t.Testeur.Role.ToString()
                 },
-                // ⭐ AJOUTER CETTE LIGNE POUR LES COMPÉTENCES REQUISES
                 CompetencesRequises = t.TacheCompetences?.Select(tc => tc.Competence?.Nom).Where(n => n != null).ToList() ?? new List<string>(),
                 SousTaches = t.SousTaches.Select(st => new SousTacheSimplifieDto
                 {
@@ -248,6 +285,56 @@ public async Task<IActionResult> GetProjetById(int id)
             }).ToList()
         }).ToList()
     };
+}
+
+[HttpGet("{id}/cdc/exists")]
+public async Task<IActionResult> CheckCdcExists(int id)
+{
+    var projet = await _context.Projets.FindAsync(id);
+    if (projet == null) return NotFound();
+    
+    return Ok(new { exists = !string.IsNullOrEmpty(projet.CdcFileUrl) });
+}
+
+[HttpGet("{id}/cdc/download")]
+public async Task<IActionResult> DownloadCdc(int id)
+{
+    var projet = await _context.Projets.FindAsync(id);
+    if (projet == null) return NotFound();
+    
+    if (string.IsNullOrEmpty(projet.CdcFileUrl))
+        return NotFound(new { message = "Aucun cahier des charges attaché" });
+    
+    var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", projet.CdcFileUrl.TrimStart('/'));
+    
+    if (!System.IO.File.Exists(filePath))
+        return NotFound(new { message = "Fichier introuvable" });
+    
+    var fileName = Path.GetFileName(filePath);
+    var contentType = Path.GetExtension(fileName).ToLower() == ".pdf" 
+        ? "application/pdf" 
+        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    
+    return PhysicalFile(filePath, contentType, fileName);
+}
+
+[HttpDelete("{id}/cdc")]
+public async Task<IActionResult> DeleteCdc(int id)
+{
+    var projet = await _context.Projets.FindAsync(id);
+    if (projet == null) return NotFound();
+    
+    if (!string.IsNullOrEmpty(projet.CdcFileUrl))
+    {
+        var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", projet.CdcFileUrl.TrimStart('/'));
+        if (System.IO.File.Exists(filePath))
+            System.IO.File.Delete(filePath);
+        
+        projet.CdcFileUrl = null;
+        await _context.SaveChangesAsync();
+    }
+    
+    return Ok(new { message = "Fichier supprimé" });
 }
 
        [HttpPut("{id}")]
@@ -281,7 +368,6 @@ public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto 
     projet.BudgetReel = dto.BudgetReel ?? projet.BudgetReel;
     projet.TypeProjet = dto.TypeProjet;
 
-    // ═══ GESTION DES PHASES ET TÂCHES (SANS COMPÉTENCES) ═══
     foreach (var phaseDto in dto.Phases)
     {
         var existingPhase = projet.Phases.FirstOrDefault(p => p.TypePhase.ToString() == phaseDto.TypePhase);
@@ -331,7 +417,6 @@ public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto 
                     }
                 }
 
-                // ⚠️ NE RIEN FAIRE AVEC LES COMPÉTENCES ICI
                 newPhase.Taches.Add(newTache);
 
                 if (tacheDto.ResponsableId.HasValue)
@@ -385,8 +470,6 @@ public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto 
                             _context.Affectations.Add(affectation);
                         }
                     }
-
-                    // ⚠️ NE RIEN FAIRE AVEC LES COMPÉTENCES ICI
                     existingPhase.Taches.Add(newTache);
 
                     if (tacheDto.ResponsableId.HasValue)
@@ -463,8 +546,6 @@ public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto 
                         }
                     }
 
-                    // ⚠️ NE RIEN FAIRE AVEC LES COMPÉTENCES ICI - ON LES GÈRE APRÈS SAVE
-
                     var stToRemove = existingTache.SousTaches
                         .Where(st => !tacheDto.SousTaches.Any(stdto => stdto.Titre == st.Titre))
                         .ToList();
@@ -519,10 +600,8 @@ public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto 
         _context.Phases.Remove(phase);
     }
 
-    // ═══ PREMIÈRE SAUVEGARDE - ICI les IDs réels sont générés ═══
     await _context.SaveChangesAsync();
 
-    // ═══ MAINTENANT, ON GÈRE LES COMPÉTENCES APRÈS LA SAUVEGARDE ═══
     await UpdateTaskCompetencesFromDto(projet.Id, dto);
 
     await _notificationService.NotifierProjetsProchesFin();
@@ -531,25 +610,20 @@ public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto 
     return Ok(new { message = "Projet mis à jour avec succès" });
 }
 
-// Méthode séparée pour gérer les compétences APRÈS la sauvegarde
 private async Task UpdateTaskCompetencesFromDto(int projetId, CreateProjetDto dto)
 {
-    // Récupérer toutes les tâches du projet avec leurs compétences actuelles
     var allTasks = await _context.Taches
         .Include(t => t.Phase)
         .Include(t => t.TacheCompetences)
         .Where(t => t.Phase.ProjetId == projetId)
         .ToListAsync();
 
-    // Créer un dictionnaire pour retrouver les tâches par (typePhase, titre)
     var taskDict = new Dictionary<string, Tache>();
     foreach (var task in allTasks)
     {
         var key = $"{task.Phase.TypePhase}_{task.Titre}";
         taskDict[key] = task;
     }
-
-    // Parcourir chaque phase du DTO et mettre à jour les compétences
     foreach (var phaseDto in dto.Phases)
     {
         foreach (var tacheDto in phaseDto.Taches)
@@ -558,11 +632,9 @@ private async Task UpdateTaskCompetencesFromDto(int projetId, CreateProjetDto dt
             if (!taskDict.TryGetValue(key, out var task))
                 continue;
 
-            // Supprimer les anciennes compétences
             var existingCompetences = _context.TacheCompetences.Where(tc => tc.TacheId == task.Id);
             _context.TacheCompetences.RemoveRange(existingCompetences);
 
-            // Ajouter les nouvelles compétences
             if (tacheDto.CompetencesRequises != null && tacheDto.CompetencesRequises.Any())
             {
                 foreach (var compNom in tacheDto.CompetencesRequises)
@@ -572,7 +644,7 @@ private async Task UpdateTaskCompetencesFromDto(int projetId, CreateProjetDto dt
                     {
                         _context.TacheCompetences.Add(new TacheCompetence
                         {
-                            TacheId = task.Id,  // Maintenant c'est un vrai ID !
+                            TacheId = task.Id,  
                             CompetenceId = competence.Id,
                             NiveauRequis = "Intermédiaire"
                         });

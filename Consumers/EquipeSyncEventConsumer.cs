@@ -3,7 +3,6 @@ using GestionProjet.Data;
 using GestionProjet.Models;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace GestionProjet.Consumers;
 
@@ -24,9 +23,7 @@ public class EquipeSyncEventConsumer : IConsumer<EquipeSyncEvent>
     {
         var evt = context.Message;
 
-        // ╔═══════════════════════════════════════════════╗
-        // ║  1. ANTI-BOUCLE                                ║
-        // ╚═══════════════════════════════════════════════╝
+        
         if (evt.SourceModule == "GestionProjet")
             return;
 
@@ -36,16 +33,12 @@ public class EquipeSyncEventConsumer : IConsumer<EquipeSyncEvent>
             return;
         }
 
-        // ╔══════════════════════════════════════════╗
-        // ║  2. Lookup par GUID                      ║
-        // ╚══════════════════════════════════════════╝
+        
         var existing = await _db.GroupesEquipe
             .Include(g => g.Employes)
             .FirstOrDefaultAsync(g => g.EquipeGuid == evt.EquipeGuid);
 
-        // ╔═══════════════════════╗
-        // ║  3. Delete            ║
-        // ╚═══════════════════════╝
+    
         if (evt.GetActionAsString() == "Deleted")
         {
             if (existing != null)
@@ -62,18 +55,13 @@ public class EquipeSyncEventConsumer : IConsumer<EquipeSyncEvent>
             return;
         }
 
-        // ╔══════════════════════════════════════╗
-        // ║  4. Last-write-wins                  ║
-        // ╚══════════════════════════════════════╝
         if (existing != null && existing.UpdatedAt > evt.ChangedAt)
         {
             _logger.LogInformation("⏭️ Local plus récent, event ignoré (GroupeEquipe {Guid})", evt.EquipeGuid);
             return;
         }
 
-        // ╔══════════════════════════════════════════════════╗
-        // ║  5. Upsert avec validation du Chef (IdOrigineRH)║
-        // ╚══════════════════════════════════════════════════╝
+       
         int? validChefId = null;
         if (evt.ChefProjetIdOrigine.HasValue)
         {
@@ -93,7 +81,7 @@ public class EquipeSyncEventConsumer : IConsumer<EquipeSyncEvent>
             existing = new GroupeEquipe
             {
                 EquipeGuid = evt.EquipeGuid,
-                IdOrigineRH = evt.Id, // ✅ SAUVEGARDE DE L'ID RH
+                IdOrigineRH = evt.Id, 
                 Nom = evt.Nom,
                 TypeProjetCompatible = evt.Domaine,
                 ChefEquipeId = validChefId, 
@@ -113,9 +101,6 @@ public class EquipeSyncEventConsumer : IConsumer<EquipeSyncEvent>
 
         await _db.SaveChangesAsync();
 
-        // ╔══════════════════════════════════════════════════╗
-        // ║  6. Sync membres via Employe.IdOrigineRH        ║
-        // ╚══════════════════════════════════════════════════╝
         var incomingIds = evt.Membres
             .Select(m => m.CollaborateurIdOrigine)
             .ToHashSet();

@@ -12,7 +12,7 @@ public class EmployeCompetence
     public int CompetenceId { get; set; }
     
     [StringLength(20)]
-    public string Niveau { get; set; } = "Intermédiaire"; // Niveau de maîtrise de l'employé
+    public string Niveau { get; set; } = "Intermédiaire"; 
     
     public DateTime DateAcquisition { get; set; } = DateTime.UtcNow;
     

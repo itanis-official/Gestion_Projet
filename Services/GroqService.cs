@@ -9,22 +9,77 @@ public class GroqService
     private readonly string? _apiKey;
     private readonly ILogger<GroqService> _logger;
 
+    
+    private static readonly string[] ModelFallbackList = 
+    {
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama3-70b-8192",
+        "llama3-8b-8192"
+    };
+
+    private readonly Dictionary<string, string> _availableModels = new()
+    {
+        { "llama-3.3-70b-versatile", "Llama 3.3 70B (Haute performance)" },
+        { "llama-3.1-8b-instant", "Llama 3.1 8B (Rapide)" },
+    };
+
     public GroqService(HttpClient http, IConfiguration config, ILogger<GroqService> logger)
     {
         _http = http;
         _apiKey = config["Groq:ApiKey"];
         _logger = logger;
-        _http.Timeout = TimeSpan.FromSeconds(90);
+        _http.Timeout = TimeSpan.FromSeconds(120);
     }
 
-    public async Task<string> GeneratePlanning(string prompt)
+    public Dictionary<string, string> GetAvailableModels() => _availableModels;
+
+    public async Task<string> GeneratePlanning(string prompt, string model = "llama-3.1-8b-instant")
     {
         if (string.IsNullOrWhiteSpace(_apiKey))
             throw new InvalidOperationException("Clé API Groq non configurée.");
 
+       
+        var modelsToTry = new List<string> { model };
+        foreach (var fallback in ModelFallbackList)
+        {
+            if (!modelsToTry.Contains(fallback))
+                modelsToTry.Add(fallback);
+        }
+
+        var lastError = "";
+
+        foreach (var currentModel in modelsToTry)
+        {
+            try
+            {
+                _logger.LogInformation("🔄 Tentative avec le modèle : {Model}", currentModel);
+                var result = await TryGenerate(prompt, currentModel);
+                _logger.LogInformation("✅ Succès avec le modèle : {Model}", currentModel);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex.Message;
+                
+                if (ex.Message.Contains("decommissioned") || 
+                    ex.Message.Contains("no longer supported"))
+                {
+                    _logger.LogWarning("⛔ Modèle déprécié : {Model}, passage au suivant...", currentModel);
+                    continue;
+                }
+                throw;
+            }
+        }
+
+        throw new Exception($"Aucun modèle disponible. Dernière erreur : {lastError}");
+    }
+
+    private async Task<string> TryGenerate(string prompt, string model)
+    {
         var request = new
         {
-            model = "llama-3.1-8b-instant",
+            model = model,
             response_format = new { type = "json_object" },
             messages = new[]
             {
@@ -52,43 +107,32 @@ public class GroqService
                 httpRequest.Headers.Add("Accept", "application/json");
                 httpRequest.Content = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
 
-                _logger.LogInformation("Tentative {Attempt}/{Max} - Prompt: {Length} chars", attempt, maxRetries, prompt.Length);
-
                 var response = await _http.SendAsync(httpRequest);
                 var content = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
                 {
-                    _logger.LogInformation("Groq succès - {Length} chars", content.Length);
                     return content;
                 }
 
-                // ── 429 : Rate limit (TPM ou RPM) → retry avec délai ──
+                if (content.Contains("decommissioned") || content.Contains("no longer supported"))
+                {
+                    throw new Exception($"Le modèle '{model}' a été décommissionné par Groq.");
+                }
+
                 if ((int)response.StatusCode == 429)
                 {
-                    var delay = baseDelay * attempt; // 5s, 10s, 15s
-
-                    _logger.LogWarning(
-                        "Rate limit (tentative {Attempt}/{Max}). Attente {Delay}s...",
-                        attempt, maxRetries, delay.TotalSeconds
-                    );
-
+                    var delay = baseDelay * attempt;
+                    _logger.LogWarning("Rate limit, tentative {Attempt}/{Max}", attempt, maxRetries);
                     if (attempt < maxRetries)
                     {
                         await Task.Delay(delay);
                         continue;
                     }
-
-                    throw new Exception(
-                        "Limite de requêtes atteinte (tier gratuit Groq). " +
-                        "Attendez 60 secondes et réessayez, ou passez au plan Dev : https://console.groq.com/settings/billing"
-                    );
+                    throw new Exception("Limite de requêtes atteinte. Patientez et réessayez.");
                 }
 
-                // ── Autres erreurs HTTP ──
-                _logger.LogError("Groq erreur {Status}: {Body}", response.StatusCode,
-                    content.Length > 300 ? content.Substring(0, 300) : content);
-
+                _logger.LogError("Groq erreur {Status} avec modèle {Model}", response.StatusCode, model);
                 throw new Exception($"Groq API Error ({response.StatusCode}): {content}");
             }
             catch (HttpRequestException ex)
@@ -115,5 +159,4 @@ public class GroqService
 
         throw new Exception("Échec après toutes les tentatives.");
     }
-    
 }

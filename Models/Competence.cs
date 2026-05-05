@@ -23,9 +23,7 @@ public class Competence
     [StringLength(500)]
     public string? Description { get; set; }
     
-    
     public virtual ICollection<EmployeCompetence> EmployeCompetences { get; set; } = new List<EmployeCompetence>();
     
-    // Relation avec les tâches
     public virtual ICollection<TacheCompetence> TacheCompetences { get; set; } = new List<TacheCompetence>();
 }

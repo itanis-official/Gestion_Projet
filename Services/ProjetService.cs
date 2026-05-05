@@ -10,18 +10,14 @@ public class ProjetService
   private readonly ApplicationDbContext _context;
     private readonly ProjetSyncService _projetSyncService; 
 
-    // 🔥 2. Injecter ProjetSyncService dans le constructeur
     public ProjetService(ApplicationDbContext context, ProjetSyncService projetSyncService)
     {
         _context = context;
         _projetSyncService = projetSyncService;
     }
-    // =========================
-    // 🔥 1. CALCUL BUDGET (basé sur les sous-tâches validées)
-    // =========================
+   
     public async Task<decimal> CalculerBudget(int projetId)
     {
-        // Option 1: Basé sur les déclarations de temps (si existantes)
         var budgetFromDeclarations = await _context.DeclarationsTemps
             .Where(dt => dt.SousTache.Tache.Phase.ProjetId == projetId)
             .SumAsync(dt => dt.DureeHeures * dt.Employe.CoutHoraire);
@@ -29,8 +25,8 @@ public class ProjetService
         if (budgetFromDeclarations > 0)
             return budgetFromDeclarations;
 
-        // Option 2: Basé sur les sous-tâches validées avec taux horaire par défaut
-        const decimal tauxHoraireDefaut = 100; // 100 DH par heure
+       
+        const decimal tauxHoraireDefaut = 100; 
 
         var sousTaches = await _context.SousTaches
             .Include(st => st.Tache)
@@ -42,7 +38,6 @@ public class ProjetService
 
         foreach (var st in sousTaches)
         {
-            // ✅ Ne compter que les sous-tâches validées
             if (st.Statut == StatutSousTache.Validee)
             {
                 budgetFromSubtasks += st.DureeEstimeeHeures * tauxHoraireDefaut;
@@ -52,9 +47,6 @@ public class ProjetService
         return budgetFromSubtasks;
     }
 
-    // =========================
-    // 🔥 2. CALCUL STATUT PROJET (amélioré)
-    // =========================
     public async Task<StatutProjet> CalculerStatut(int projetId)
     {
         var sousTaches = await _context.SousTaches
@@ -69,15 +61,12 @@ public class ProjetService
         int rejetees = sousTaches.Count(st => st.Statut == StatutSousTache.Rejetee);
         int enCours = sousTaches.Count(st => st.Statut == StatutSousTache.EnCours || st.Statut == StatutSousTache.ATester);
 
-        // Toutes validées → Terminé
         if (validees == total)
             return StatutProjet.Termine;
 
-        // Il y a du travail en cours
         if (enCours > 0 || validees > 0 || rejetees > 0)
             return StatutProjet.EnCours;
 
-        // Vérifier si la date de fin est dépassée
         var projet = await _context.Projets.FindAsync(projetId);
         if (projet != null && projet.DateFinPrevue.Date < DateTime.Today)
             return StatutProjet.Retarde;
@@ -85,9 +74,6 @@ public class ProjetService
         return StatutProjet.Planifie;
     }
 
-    // =========================
-    // 🔥 3. MISE À JOUR COMPLETE PROJET
-    // =========================
     public async Task MettreAJourProjet(int projetId)
     {
         var projet = await _context.Projets.FindAsync(projetId);
@@ -95,29 +81,21 @@ public class ProjetService
         if (projet == null)
             throw new Exception("Projet introuvable");
 
-        // Calcul des nouvelles valeurs
         projet.BudgetReel = await CalculerBudget(projetId);
         projet.Statut = await CalculerStatut(projetId);
 
-        // Sauvegarde en base de données
         await _context.SaveChangesAsync();
 
-        // 🔥 4. ENVOI AU CRM : On publie l'événement pour informer le CRM du changement
-        // On utilise SyncAction.Update car le projet (et son prix) a été modifié.
-        try 
+       try 
         {
             await _projetSyncService.PublierVersCRM(projetId, SyncAction.Updated);
         }
         catch (Exception ex)
         {
-            // Log l'erreur mais ne pas crasher l'application si le CRM est down
-            // Idéalement, utilisez ici un ILogger
             Console.WriteLine($"Erreur lors de la sync CRM pour le projet {projetId}: {ex.Message}");
         }
     }
-    // =========================
-    // 🔥 4. RECALCULER TOUS LES PROJETS
-    // =========================
+   
     public async Task RecalculerTousLesProjets()
     {
         var projets = await _context.Projets.ToListAsync();

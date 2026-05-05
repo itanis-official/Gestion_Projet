@@ -26,7 +26,7 @@ public class ApplicationDbContext : IdentityDbContext<Utilisateur>
     public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<TypeProjet> TypesProjet { get; set; }
     
-    // ==================== NOUVEAUX DbSet ====================
+
    public DbSet<Competence> Competences { get; set; }
 public DbSet<EmployeCompetence> EmployeCompetences { get; set; }
 public DbSet<TacheCompetence> TacheCompetences { get; set; }
@@ -34,8 +34,7 @@ public DbSet<TacheCompetence> TacheCompetences { get; set; }
     {
         base.OnModelCreating(modelBuilder);
         
-        // ==================== CONFIGURATIONS DES COMPÉTENCES ====================
-        
+       
         modelBuilder.Entity<EmployeCompetence>()
 
             .HasOne(ec => ec.Employe)
@@ -65,7 +64,6 @@ public DbSet<TacheCompetence> TacheCompetences { get; set; }
             .HasForeignKey(tc => tc.CompetenceId)
             .OnDelete(DeleteBehavior.Cascade);
         
-        // Index pour optimiser les recherches
         modelBuilder.Entity<Competence>()
             .HasIndex(c => c.Nom)
             .IsUnique();
@@ -80,8 +78,6 @@ public DbSet<TacheCompetence> TacheCompetences { get; set; }
         modelBuilder.Entity<TacheCompetence>()
             .HasIndex(tc => new { tc.TacheId, tc.CompetenceId })
             .IsUnique();
-
-        // ==================== CONFIGURATIONS EXISTANTES ====================
 
         modelBuilder.Entity<Phase>()
             .HasOne(p => p.Projet)

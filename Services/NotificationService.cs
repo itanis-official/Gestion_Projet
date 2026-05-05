@@ -90,7 +90,7 @@ public async Task NotifierSousTacheATester(int sousTacheId, int testeurId, strin
         {
             EmployeId = testeurId,
             Message = message,
-            Type = "SousTacheATester", // Vous pouvez utiliser ce type pour filtrer dans le frontend
+            Type = "SousTacheATester", 
             DateEnvoi = DateTime.Now,
             Lu = false
         };

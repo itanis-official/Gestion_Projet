@@ -1,4 +1,3 @@
-// GestionProjet/Services/ProjetSyncService.cs
 using MassTransit;
 using ITANIS.SharedEvents;
 using GestionProjet.Data;
@@ -22,10 +21,6 @@ public class ProjetSyncService
         _db = db;
         _logger = logger;
     }
-
-    /// <summary>
-    /// Publie un événement ProjetSyncEvent vers le CRM à partir de l'ID
-    /// </summary>
     public async Task PublierVersCRM(int projetId, SyncAction action)
     {
         var projet = await _db.Projets
@@ -42,25 +37,15 @@ public class ProjetSyncService
         await PublierVersCRM(projet, action);
     }
 
-    /// <summary>
-    /// Publie un événement ProjetSyncEvent vers le CRM à partir de l'entité
-    /// </summary>
-       /// <summary>
-    /// Publie un événement ProjetSyncEvent vers le CRM à partir de l'entité
-    /// </summary>
     public async Task PublierVersCRM(Projet projet, SyncAction action)
     {
         try
         {
-            // 1. Recharger le projet avec TOUTE la hiérarchie (Phases -> Taches -> SousTaches)
-            // Note : On ne peut pas utiliser le paramètre 'projet' passé si ses collections ne sont pas chargées (lazy loading).
-            // Il vaut mieux faire une requête spécifique ici pour s'assurer d'avoir tout le détail.
-            var projetComplet = await _db.Projets
+           var projetComplet = await _db.Projets
                 .Include(p => p.Client)
                 .Include(p => p.Phases)
                     .ThenInclude(ph => ph.Taches)
                         .ThenInclude(t => t.SousTaches)
-                            // On inclut le responsable de la sous-tache pour avoir son nom
                             .ThenInclude(st => st.Affectations) 
                                 .ThenInclude(a => a.Employe)
                                 
@@ -85,7 +70,6 @@ public class ProjetSyncService
                         Titre = st.Titre,
                         Statut = st.Statut.ToString(),
                         DureeEstimeeHeures = st.DureeEstimeeHeures,
-                        // Récupérer le nom de l'employé affecté s'il y en a un
                         ResponsableNom = st.Affectations.FirstOrDefault()?.Employe?.NomComplet
                     }).ToList()
                 }).ToList()
@@ -106,8 +90,6 @@ public class ProjetSyncService
                 BudgetReel = projetComplet.BudgetReel,
                 Description = projetComplet.Description ?? string.Empty,
                 TypeProjet = projetComplet.TypeProjet ?? string.Empty,
-                
-                // On injecte la liste remplie
                 Phases = phasesDto
             });
 

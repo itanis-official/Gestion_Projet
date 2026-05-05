@@ -8,14 +8,11 @@ public class Client
     [Key]
     public int Id { get; set; }
     
-    // ⚠️ ASTUCE : On appelle la variable "RaisonSociale" dans le code C#, 
-    // mais on garde le nom "Nom" dans la base de données SQL pour ne pas perdre tes données existantes !
     [Required]
     [StringLength(200)]
     [Column("Nom")] 
     public string RaisonSociale { get; set; } = string.Empty;
     
-    // Nouvelles propriétés remontées du CRM
     public string? Secteur { get; set; }
     
     [EmailAddress]
@@ -32,6 +29,5 @@ public class Client
     
     public DateTime SyncedAt { get; set; }
     
-    // ⚠️⭐️⭐️ OBLIGATOIRE : Ne surtout pas supprimer cette ligne ! ⭐️⭐️⚠️
     public virtual ICollection<Projet> Projets { get; set; } = new List<Projet>();
 }

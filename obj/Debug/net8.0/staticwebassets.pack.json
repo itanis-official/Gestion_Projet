@@ -1,6 +1,18 @@
 {
   "Files": [
     {
+      "Id": "C:\\Users\\user\\Desktop\\PFE\\GestionProjet\\wwwroot\\uploads\\cdc\\1016_8c2496a1-46dc-46f6-b8ab-fa10ba0c1477.docx",
+      "PackagePath": "staticwebassets\\uploads\\cdc\\1016_8c2496a1-46dc-46f6-b8ab-fa10ba0c1477.docx"
+    },
+    {
+      "Id": "C:\\Users\\user\\Desktop\\PFE\\GestionProjet\\wwwroot\\uploads\\cdc\\1018_5f2aae02-a5cb-46c4-94bc-92f3cc8ad29b.docx",
+      "PackagePath": "staticwebassets\\uploads\\cdc\\1018_5f2aae02-a5cb-46c4-94bc-92f3cc8ad29b.docx"
+    },
+    {
+      "Id": "C:\\Users\\user\\Desktop\\PFE\\GestionProjet\\wwwroot\\uploads\\cdc\\cahier-de-charges-facturier-20260428153128016.docx",
+      "PackagePath": "staticwebassets\\uploads\\cdc\\cahier-de-charges-facturier-20260428153128016.docx"
+    },
+    {
       "Id": "C:\\Users\\user\\Desktop\\PFE\\GestionProjet\\wwwroot\\uploads\\cdc\\cahierdescharges-site-ecommerce-20260424120519233.pdf",
       "PackagePath": "staticwebassets\\uploads\\cdc\\cahierdescharges-site-ecommerce-20260424120519233.pdf"
     },

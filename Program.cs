@@ -11,14 +11,11 @@ using MassTransit;
 using GestionProjet.Consumers;
 using dotenv.net;
 
-// ===== AJOUT DE CES NAMESPACES POUR SERVIR LES PDFS =====
 using Microsoft.Extensions.FileProviders;
 using System.IO;
-// =======================================================
 
-// ===== AJOUTE CECI AU TOUT DÉBUT =====
 DotEnv.Load(options: new DotEnvOptions(envFilePaths: new[] { ".env" }));
-// ======================================
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -74,10 +71,7 @@ builder.Services.AddCors(options =>
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-// Lecture du mot de passe depuis les variables d'environnement (chargées via .env)
 var password = Environment.GetEnvironmentVariable("DB_PASSWORD") ;
-
-// Remplacement dans la chaîne de connexion
 if (!string.IsNullOrEmpty(connectionString) && !string.IsNullOrEmpty(password))
 {
     connectionString = connectionString.Replace("${DB_PASSWORD}", password);
@@ -103,11 +97,9 @@ builder.Services.AddIdentity<Utilisateur, IdentityRole>(options =>
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
 
-// Configuration JWT
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 builder.Services.Configure<JwtSettings>(jwtSettings);
 
-// Récupération de la clé Groq depuis .env
 var groqApiKey = Environment.GetEnvironmentVariable("GROQ_API_KEY") ?? builder.Configuration["Groq:ApiKey"];
 builder.Configuration["Groq:ApiKey"] = groqApiKey;
 
@@ -155,17 +147,15 @@ builder.Services.AddScoped<NotificationService>();
 builder.Services.AddHostedService<NotificationBackgroundService>();
 builder.Services.AddScoped<ProjetService>();
 builder.Services.AddScoped<LoadBalancingService>();
-builder.Services.AddScoped<PlanningIAService>();
 builder.Services.AddHttpClient<GroqService>();
 builder.Services.AddScoped<ProjetSyncService>();
-
-// Configuration MassTransit
 builder.Services.AddMassTransit(x =>
 {
     x.AddConsumer<OpportuniteConvertieConsumer>();
     x.AddConsumer<CompanySyncConsumer>();   
     x.AddConsumer<AgentSyncConsumer>();     
     x.AddConsumer<TypeProjetSyncEventConsumer>();
+    x.AddConsumer<TacheResponsableReassignedConsumer>();
     x.UsingRabbitMq((context, cfg) =>
     {
         cfg.Host("51.254.133.231", 31672, "/", h =>
@@ -178,7 +168,10 @@ builder.Services.AddMassTransit(x =>
         {
             e.ConfigureConsumer<OpportuniteConvertieConsumer>(context);
         });
-
+cfg.ReceiveEndpoint("gestion-projet-tache-reassigned", e =>  
+        {
+            e.ConfigureConsumer<TacheResponsableReassignedConsumer>(context);
+        });
         cfg.ConfigureEndpoints(context); 
     });
 });
@@ -191,25 +184,20 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseStaticFiles(); // <--- Nécessaire pour servir les fichiers par défaut (React, etc.)
+app.UseStaticFiles(); 
 
-// ================================================================
-// AJOUT POUR SERVIR LES PDFs DU DOSSIER UPLOADS
-// ================================================================
 app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(
         Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads")),
     RequestPath = "/uploads"
 });
-// ================================================================
 
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Note : MapControllers n'est appelé qu'une fois ici (j'ai supprimé le doublon en bas)
 app.MapControllers();
 
 using (var scope = app.Services.CreateScope())

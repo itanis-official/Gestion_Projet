@@ -14,11 +14,11 @@ namespace GestionProjet.Models
         public Guid TypeProjetGuid { get; set; }
 
         [Required]
-        [MaxLength(255)] // Ajuster selon vos besoins
+        [MaxLength(255)] 
         public string Value { get; set; } = "";
 
         [Required]
-        [MaxLength(255)] // Ajuster selon vos besoins
+        [MaxLength(255)] 
         public string Label { get; set; } = "";
 
         public bool IsActive { get; set; }

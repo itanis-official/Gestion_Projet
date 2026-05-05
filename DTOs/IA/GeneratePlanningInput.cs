@@ -11,6 +11,7 @@ namespace GestionProjet.DTOs.AI
         public List<MembreDisponible> EquipeDisponible { get; set; } = new();
         public int? ProjetId { get; set; } 
         public List<string>? JoursFeries { get; set; }
+        public string? Model { get; set; } = "llama-3.1-8b-instant";
     }
 
     public class MembreDisponible

@@ -1,4 +1,3 @@
-// Fichier : GestionProjet/Consumers/OpportuniteConvertieConsumer.cs
 using MassTransit;
 using ITANIS.SharedEvents;
 using GestionProjet.Data;
@@ -6,8 +5,6 @@ using GestionProjet.Models;
 using GestionProjet.Enums;
 using GestionProjet.Services;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using System.IO; // Nécessaire pour manipuler les fichiers
 
 namespace GestionProjet.Consumers;
 
@@ -32,7 +29,6 @@ public class OpportuniteConvertieConsumer : IConsumer<OpportuniteConvertieEvent>
         var msg = context.Message;
         _logger.LogInformation("📩 MESSAGE REÇU ! OpportuniteId: {Id}", msg.OpportunityId);
 
-        // 1. Vérifier/Créer le Client
         var client = await _db.Clients.FindAsync(msg.CompanyIdOrigine);
         if (client == null)
         {
@@ -46,7 +42,6 @@ public class OpportuniteConvertieConsumer : IConsumer<OpportuniteConvertieEvent>
             await _db.SaveChangesAsync();
         }
 
-        // 2. Éviter les doublons
         var existe = await _db.Projets
             .AnyAsync(p => p.OpportuniteIdOrigine == msg.OpportunityId);
 
@@ -55,8 +50,6 @@ public class OpportuniteConvertieConsumer : IConsumer<OpportuniteConvertieEvent>
             _logger.LogWarning("⚠️ Projet déjà existant pour OpportuniteId {Id}", msg.OpportunityId);
             return;
         }
-
-        // 3. Résoudre le GroupeEquipe via IdOrigineRH
         GroupeEquipe? groupe = null;
         if (msg.EquipeIdOrigine.HasValue)
         {
@@ -69,24 +62,17 @@ public class OpportuniteConvertieConsumer : IConsumer<OpportuniteConvertieEvent>
                     msg.EquipeIdOrigine.Value, msg.OpportunityId);
             }
         }
-
-        // ==================== LOGIQUE FICHIER (PDF) ====================
         string? cdcUrl = null;
 
-        // Si un contenu de fichier est présent dans le message
         if (msg.CdcFileContent != null && msg.CdcFileContent.Length > 0)
         {
-            // Définir le dossier de stockage : wwwroot/uploads/cdc
-            // Directory.GetCurrentDirectory() se positionne correctement en Dev et Prod
             var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "cdc");
 
-            // Créer le dossier s'il n'existe pas
             if (!Directory.Exists(uploadsFolder))
             {
                 Directory.CreateDirectory(uploadsFolder);
             }
 
-            // Sécuriser le nom du fichier (éviter les chemins relatifs comme ../../)
             var safeFileName = string.IsNullOrEmpty(msg.CdcFileName) 
                 ? $"{Guid.NewGuid()}.pdf" 
                 : Path.GetFileName(msg.CdcFileName);
@@ -95,10 +81,8 @@ public class OpportuniteConvertieConsumer : IConsumer<OpportuniteConvertieEvent>
 
             try
             {
-                // Écrire le fichier sur le disque
-                await File.WriteAllBytesAsync(filePath, msg.CdcFileContent);
                 
-                // Générer l'URL relative pour l'application (ex: /uploads/cdc/monfichier.pdf)
+                await File.WriteAllBytesAsync(filePath, msg.CdcFileContent);
                 cdcUrl = $"/uploads/cdc/{safeFileName}";
                 
                 _logger.LogInformation("📄 Cahier des charges enregistré : {Url}", cdcUrl);
@@ -108,9 +92,7 @@ public class OpportuniteConvertieConsumer : IConsumer<OpportuniteConvertieEvent>
                 _logger.LogError(ex, "❌ Erreur lors de l'enregistrement du fichier CDC pour l'opportunité {Id}", msg.OpportunityId);
             }
         }
-        // ===============================================================
 
-        // 4. Créer le Projet
         var projet = new Projet
         {
             Nom = msg.NomProjet ?? msg.Titre,
@@ -123,15 +105,12 @@ public class OpportuniteConvertieConsumer : IConsumer<OpportuniteConvertieEvent>
             TypeProjet = msg.TypeProjet ?? "Web",
             BudgetEstime = msg.BudgetConfirme ?? msg.ValeurEstimee,
             GroupeEquipeId = groupe?.Id,
-            
-            // On assigne l'URL générée ici
             CdcFileUrl = cdcUrl
         };
 
         _db.Projets.Add(projet);
         await _db.SaveChangesAsync();
 
-        // 5. 📤 Pousser vers le CRM
         await _syncService.PublierVersCRM(projet, SyncAction.Created);
 
         _logger.LogInformation("✅ Projet {Id} créé ET poussé vers le CRM (CDC: {Url})", projet.Id, projet.CdcFileUrl);

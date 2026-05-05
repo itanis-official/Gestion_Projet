@@ -1,9 +1,7 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using MassTransit;
 using ITANIS.SharedEvents;
-using GestionProjet.Data;   // <--- AJOUTER CETTE LIGNE C'EST CRUCIAL
+using GestionProjet.Data;   
 using GestionProjet.Models;
 
 namespace GestionProjet.Consumers

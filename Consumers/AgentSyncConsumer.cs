@@ -25,7 +25,6 @@ public class AgentSyncConsumer : IConsumer<AgentSyncEvent>
 
         _logger.LogInformation("👤 Synchronisation Employé : {Nom} (ID RH: {Id})", nomComplet, msg.Id);
 
-        // ✅ CHANGEMENT : Lookup par IdOrigineRH au lieu de Id
         var employeExistant = await _db.Employes.FirstOrDefaultAsync(e => e.IdOrigineRH == msg.Id);
 
         if (employeExistant != null)
@@ -41,7 +40,7 @@ public class AgentSyncConsumer : IConsumer<AgentSyncEvent>
         {
             var nouvelEmploye = new Employe
             {
-                IdOrigineRH = msg.Id, // ✅ CHANGEMENT : Stocker l'ID RH ici
+                IdOrigineRH = msg.Id, 
                 NomComplet = nomComplet,
                 Email = msg.Email,
                 Role = msg.Poste, 

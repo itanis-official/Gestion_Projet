@@ -4,8 +4,8 @@ using GestionProjet.Services;
 using GestionProjet.Data;       
 using UglyToad.PdfPig;      
 using System.Text.Json;
-using System.Text;           
-          
+using System.Text;
+using DocumentFormat.OpenXml.Packaging; 
 
 namespace GestionProjet.Controllers;
 
@@ -24,12 +24,19 @@ public class AiController : ControllerBase
         _logger = logger;
     }
 
+    [HttpGet("models")]
+    public IActionResult GetAvailableModels()
+    {
+        var models = _groq.GetAvailableModels();
+        return Ok(models.Select(m => new { id = m.Key, name = m.Value }));
+    }
+
     [HttpPost("generate-planning")]
     public async Task<IActionResult> Generate([FromBody] GeneratePlanningInput input)
     {
         try
         {
-            // Validations de base
+            
             if (string.IsNullOrWhiteSpace(input.ProjetNom))
             {
                 return BadRequest(new { message = "Le nom du projet est requis." });
@@ -46,49 +53,61 @@ public class AiController : ControllerBase
             }
 
             _logger.LogInformation(
-                "Génération planning IA - Projet: {Nom}, Début: {Debut}, Fin: {Fin}, Membres: {Membres}",
-                input.ProjetNom, input.DateDebut.ToString("yyyy-MM-dd"),
-                input.DateFinPrevue.ToString("yyyy-MM-dd"),
-                input.EquipeDisponible?.Count ?? 0
+                "🚀 Génération planning IA - Projet: {Nom}, Modèle: {Model}",
+                input.ProjetNom, input.Model ?? "default"
             );
 
-            // ================================================================
-            // 1. EXTRACTION DU TEXTE DU PDF (SI UN PROJET EST FOURNI)
-            // ================================================================
             string cdcTexte = "";
-            if (input.ProjetId.HasValue)
+
+            if (!input.ProjetId.HasValue)
             {
+                _logger.LogWarning("🚫 Échec extraction : Le champ 'ProjetId' est NULL dans la requête envoyée par le frontend.");
+            }
+            else
+            {
+                _logger.LogInformation("📥 Recherche du projet ID {ProjetId} en base de données...", input.ProjetId.Value);
+                
                 var projet = await _db.Projets.FindAsync(input.ProjetId.Value);
-                if (projet != null && !string.IsNullOrEmpty(projet.CdcFileUrl))
+
+                if (projet == null)
                 {
-                    _logger.LogInformation("📄 Extraction du CDC depuis l'URL : {Url}", projet.CdcFileUrl);
-                    try
-                    {
-                        cdcTexte = ExtractTextFromPdf(projet.CdcFileUrl);
-                        _logger.LogInformation("✅ PDF extrait avec succès ({Length} caractères).", cdcTexte.Length);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "⚠️ Erreur lors de l'extraction du PDF. Génération sans contexte CDC.");
-                        cdcTexte = ""; // On continue sans le texte du PDF s'il y a une erreur
-                    }
+                    _logger.LogError("❌ Échec extraction : Aucun projet trouvé en base avec l'ID {ProjetId}.", input.ProjetId.Value);
+                }
+                else if (string.IsNullOrEmpty(projet.CdcFileUrl))
+                {
+                    _logger.LogWarning("❌ Échec extraction : Le projet existe (ID: {Id}), mais la colonne 'CdcFileUrl' est VIDE ou NULL.", projet.Id);
                 }
                 else
                 {
-                    _logger.LogInformation("ℹ️ Aucun projet ou aucun fichier CDC trouvé pour l'ID {Id}.", input.ProjetId.Value);
+                    _logger.LogInformation("✅ Projet trouvé. URL du fichier stockée en BDD : {Url}", projet.CdcFileUrl);
+                    
+                    try
+                    {
+                        cdcTexte = ExtractTextFromFile(projet.CdcFileUrl);
+                        
+                        if (string.IsNullOrEmpty(cdcTexte))
+                        {
+                            _logger.LogWarning("❌ Échec extraction : Aucun texte n'a pu être extrait du fichier.");
+                        }
+                        else
+                        {
+                            _logger.LogInformation("✅ SUCCÈS : Fichier extrait ({Length} caractères).", cdcTexte.Length);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "💥 Exception critique lors de l'extraction du fichier");
+                    }
                 }
             }
-            // ================================================================
 
-            // 2. Construction du Prompt
             var prompt = BuildPrompt(input, cdcTexte);
-            _logger.LogDebug("Prompt envoyé à Groq (longueur: {Length})", prompt.Length);
+            
+            _logger.LogInformation("📏 Taille du prompt envoyé à l'IA : {Length} caractères.", prompt.Length);
+            
+            var model = string.IsNullOrEmpty(input.Model) ? "llama-3.1-8b-instant" : input.Model;
+            var jsonRaw = await _groq.GeneratePlanning(prompt, model);
 
-            // 3. Appel à l'API IA (Groq)
-            var jsonRaw = await _groq.GeneratePlanning(prompt);
-            _logger.LogDebug("Réponse Groq reçue (longueur: {Length})", jsonRaw.Length);
-
-            // 4. Parsing de la réponse JSON de l'IA
             string? content;
             try
             {
@@ -120,7 +139,6 @@ public class AiController : ControllerBase
                 });
             }
 
-            // 5. Validation de la structure interne (Phase, Taches...)
             try
             {
                 using var validateDoc = JsonDocument.Parse(content);
@@ -128,14 +146,14 @@ public class AiController : ControllerBase
                 {
                     return StatusCode(502, new
                     {
-                        message = "L'IA n'a pas généré la structure attendue (phases manquantes).",
+                        message = "L'IA n'a pas généré la structure attendue.",
                         preview = content.Length > 300 ? content.Substring(0, 300) + "..." : content
                     });
                 }
             }
             catch (JsonException ex)
             {
-                _logger.LogError(ex, "Le contenu généré par l'IA n'est pas du JSON valide");
+                _logger.LogError(ex, "Le contenu généré n'est pas du JSON valide");
                 return StatusCode(502, new
                 {
                     message = "L'IA n'a pas généré du JSON valide.",
@@ -143,137 +161,116 @@ public class AiController : ControllerBase
                 });
             }
 
-            // Retourner le JSON brut au Frontend
             return Content(content, "application/json");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Erreur génération planning IA");
-
-            var message = ex.Message;
-
-            if (message.Contains("Groq API Error"))
-            {
-                return StatusCode(502, new
-                {
-                    message = "Erreur de communication avec l'IA (Groq).",
-                    detail = message
-                });
-            }
-
-            if (message.Contains("ApiKey") || message.Contains("401"))
-            {
-                return StatusCode(500, new
-                {
-                    message = "Clé API Groq invalide ou manquante. Vérifiez la configuration."
-                });
-            }
-
-            if (message.Contains("429"))
-            {
-                return StatusCode(429, new
-                {
-                    message = "Trop de requêtes vers l'IA. Patientez quelques secondes et réessayez."
-                });
-            }
-
-            if (message.Contains("timeout") || message.Contains("Task canceled"))
-            {
-                return StatusCode(504, new
-                {
-                    message = "L'IA met trop longtemps à répondre. Réessayez."
-                });
-            }
-
             return StatusCode(500, new
             {
                 message = "Erreur interne lors de la génération du planning.",
-                detail = message
+                detail = ex.Message
             });
         }
     }
-
-    // ========================================================================
-    // MÉTHODE D'EXTRACTION PDF (VERSION ROBUSTE)
-    // ========================================================================
     
-    /// <summary>
-    /// Ouvre le fichier PDF sur le disque et en extrait tout le texte.
-    /// Utilise GetWords() pour une compatibilité maximale avec toutes les versions de PdfPig.
-    /// </summary>
-    private string ExtractTextFromPdf(string relativeUrl)
+    private string ExtractTextFromFile(string relativeUrl)
     {
         try
         {
-            // 1. Construire le chemin physique du fichier
             var wwwrootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
             
-            // Sécurisation du nom du fichier
             var fileName = Path.GetFileName(relativeUrl);
             var filePath = Path.Combine(wwwrootPath, "uploads", "cdc", fileName);
+            var extension = Path.GetExtension(fileName).ToLowerInvariant();
+
+            _logger.LogInformation("🔍 Tentative d'extraction : {Path} (Format: {Extension})", filePath, extension);
 
             if (!System.IO.File.Exists(filePath))
             {
-                _logger.LogWarning("📂 Fichier PDF non trouvé sur le disque : {Path}", filePath);
+                _logger.LogWarning("📂 Le fichier n'existe PAS à cet emplacement.");
                 return string.Empty;
             }
 
-            // 2. Utiliser PdfPig pour extraire le texte via GetWords()
             var texte = new StringBuilder();
-            using (var document = PdfDocument.Open(filePath))
+
+            if (extension == ".pdf")
             {
-                foreach (var page in document.GetPages())
+                using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var document = PdfDocument.Open(fileStream))
                 {
-                    // GetWords() retourne une liste de mots
-                    var words = page.GetWords();
-                    
-                    // On joint les mots avec un espace
-                    foreach (var word in words)
+                    foreach (var page in document.GetPages())
                     {
-                        texte.Append(word.Text).Append(" ");
+                        var words = page.GetWords();
+                        foreach (var word in words)
+                        {
+                            texte.Append(word.Text).Append(" ");
+                        }
+                        texte.Append("\n\n"); 
                     }
-                    
-                    // Ajout d'un saut de ligne à la fin de chaque page
-                    texte.Append("\n\n"); 
                 }
+            }
+           
+            else if (extension == ".docx")
+            {
+                using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var wordDocument = WordprocessingDocument.Open(fileStream, false))
+                {
+                    var mainPart = wordDocument.MainDocumentPart;
+                    if (mainPart != null)
+                    {
+                        var bodyText = mainPart.Document.Body.InnerText;
+                        texte.Append(bodyText);
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogWarning("⚠️ Format de fichier non supporté : {Extension}. Seuls PDF et DOCX sont acceptés.", extension);
+                return string.Empty;
             }
 
             return texte.ToString();
         }
+        catch (System.IO.IOException ex)
+        {
+            _logger.LogError(ex, "💥 Erreur d'accès fichier (vérifiez les permissions)");
+            return string.Empty;
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Erreur technique lors de la lecture du fichier PDF");
+            _logger.LogError(ex, "Erreur technique lors de la lecture du fichier");
             return string.Empty;
         }
     }
 
-    // ========================================================================
-    // CONSTRUCTION DU PROMPT (Mis à jour pour inclure le texte CDC)
-    // ========================================================================
-
-   private string BuildPrompt(GeneratePlanningInput input, string cdcTexte)
-{
-    var equipeText = BuildEquipeText(input.EquipeDisponible);
-    var startDateStr = input.DateDebut.ToString("yyyy-MM-dd");
-    var endDateStr = input.DateFinPrevue.ToString("yyyy-MM-dd");
-
-    // Insertion du contexte CDC dans le prompt si disponible
-    string contexteCdc = "";
-    if (!string.IsNullOrEmpty(cdcTexte))
+    private string BuildPrompt(GeneratePlanningInput input, string cdcTexte)
     {
-        // On tronque à 3000 caractères si trop long pour éviter de dépasser le contexte de l'IA
-        var textToUse = cdcTexte.Length > 3000 ? cdcTexte.Substring(0, 3000) + "...[tronqué]" : cdcTexte;
-        
-        contexteCdc = $@"--- CAHIER DES CHARGES (EXTRAIT DU PDF) ---
+        var equipeText = BuildEquipeText(input.EquipeDisponible);
+        var startDateStr = input.DateDebut.ToString("yyyy-MM-dd");
+        var endDateStr = input.DateFinPrevue.ToString("yyyy-MM-dd");
+
+        string contexteCdc = "";
+        if (!string.IsNullOrEmpty(cdcTexte))
+        {
+           
+            var textToUse = cdcTexte.Length > 3000 ? cdcTexte.Substring(0, 3000) + "...[tronqué]" : cdcTexte;
+                 _logger.LogInformation("📄 EXTRAIT DU CDC (100 premiers caractères): {Extrait}", 
+            cdcTexte.Length > 100 ? cdcTexte.Substring(0, 100) : cdcTexte);
+            contexteCdc = $@"--- CAHIER DES CHARGES (EXTRAIT DU FICHIER) ---
 Basé sur le document suivant, décris les tâches spécifiques et fonctionnalités requises. Si le document contient des phases ou des livrables listés, respecte-les rigoureusement.
 
-[CONTENU DU PDF COMMENCE ICI]
+[CONTENU DU FICHIER COMMENCE ICI]
 {textToUse}
-[CONTENU DU PDF SE TERMINE ICI]
+[CONTENU DU FICHIER SE TERMINE ICI]
 ";
-    }
+        }
+        else
+        {
+            _logger.LogWarning("⚠️ AUCUN TEXTE EXTRAIT. L'IA travaillera sans contexte CDC.");
+        }
 
-    return $@"Tu es un Expert PMP. Génère un planning IT JSON pour '{input.ProjetNom}'.
+        return $@"Tu es un Expert PMP. Génère un planning IT JSON pour '{input.ProjetNom}'.
 
 {contexteCdc}
 
@@ -287,47 +284,28 @@ Aucune tâche ne peut se terminer après {endDateStr}
 
 --- RÈGLES DE CAPACITÉ STRICTES (ANTI-OVERLOAD) ---
 1. RÈGLE DES 8H : Un membre ne peut pas travailler plus de 8h par jour, TOUTES TÂCHES CONFONDUES.
-2. SÉQUENÇAGE : Si un membre a plusieurs tâches, elles ne doivent pas se chevaucher. La tâche B commence après la fin de la tâche A.
-3. CALCUL DE DURÉE : Pour une tâche de X heures, dateFin = dateDebut + (X / 8) jours ouvrés.
-4. SI SURCHARGE : Si le temps est trop court pour respecter les 8h/jour, tu DOIS réduire le nombre de sous-tâches ou alerter dans le 'resume'.
-
+2.Au moins une sous-tâche est requisee pour chaque tâche.
 --- ÉQUIPE ---
 {equipeText}
+--- COMPÉTENCES PAR PHASE ---
+- Phase Analyse : AUCUNE compétence technique de programmation
 
---- LOGIQUE TECHNIQUE ---
-- Phase Analyse : Focus sur les Specs. Compétences techniques [] souvent vides ici.
-- Phase MiseEnOeuvre : Utilise les compétences tech fournies (ex: TypeScript, Angular).
-- Jours Fériés à exclure : {string.Join(", ", input.JoursFeries ?? new List<string>())}.
-
+--- JOURS FÉRIÉS ---
+{string.Join(", ", input.JoursFeries ?? new List<string>())}.
 --- FORMAT JSON (TOUJOURS VALIDE) ---
 {{
   ""phases"": [
     {{
-      ""typePhase"": ""Analyse"",
+      ""typePhase"": "",
       ""taches"": [
         {{
-          ""titre"": ""Analyse des besoins"",
-          ""dateDebutPrevue"": ""{startDateStr}"",
-          ""dateFinPrevue"": ""2026-05-05"",
+          ""titre"": "",
+          ""dateDebutPrevue"": "",
+          ""dateFinPrevue"": "",
           ""responsableId"": null,
           ""competencesRequises"": [],
           ""sousTaches"": [
-            {{ ""titre"": ""Rédaction specs"", ""dureeEstimeeHeures"": 16 }}
-          ]
-        }}
-      ]
-    }},
-    {{
-      ""typePhase"": ""MiseEnOeuvre"",
-      ""taches"": [
-        {{
-          ""titre"": ""Développement Frontend"",
-          ""dateDebutPrevue"": ""2026-05-06"",
-          ""dateFinPrevue"": ""{endDateStr}"",
-          ""responsableId"": 1,
-          ""competencesRequises"": [""Angular""],
-          ""sousTaches"": [
-            {{ ""titre"": ""Composant Home"", ""dureeEstimeeHeures"": 16 }}
+            {{ ""titre"": "", ""dureeEstimeeHeures"":  }}
           ]
         }}
       ]
@@ -340,11 +318,7 @@ IMPORTANT :
 - La date de début de la première tâche doit être >= {startDateStr}
 - La date de fin de la dernière tâche doit être <= {endDateStr}
 - Répartis les tâches sur toute la durée du projet ({startDateStr} → {endDateStr})";
-}
-
-    // ========================================================================
-    // METHODES UTILITAIRES
-    // ========================================================================
+    }
 
     private int CalculateWorkDays(DateTime start, DateTime end, List<string>? joursFeries)
     {

@@ -34,30 +34,24 @@ public class CompanySyncConsumer : IConsumer<CompanySyncEvent>
 
     if (existing == null)
     {
-        // CAS D'AJOUT : On doit insérer un ID spécifique
         existing = new Client { Id = m.Id };
 
         try
         {
-            // 1. On ouvre la connexion (nécessaire pour la commande IDENTITY_INSERT)
             await _db.Database.OpenConnectionAsync();
 
-            // 2. On autorise l'insertion explicite de l'ID
             await _db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Clients] ON");
 
-            // 3. On ajoute l'entité avec l'ID imposé par le message
             _db.Clients.Add(existing);
             await _db.SaveChangesAsync();
         }
         finally
         {
-            // 4. IMPORTANT : On remet le mode normal (OFF) pour les autres requêtes
             await _db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Clients] OFF");
             await _db.Database.CloseConnectionAsync();
         }
     }
 
-    // Mise à jour des propriétés (se produit si le client existe déjà ou s'il vient d'être créé)
     existing.RaisonSociale = m.RaisonSociale;
     existing.Secteur = m.Secteur;
     existing.EmailPrincipal = m.EmailPrincipal;

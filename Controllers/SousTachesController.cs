@@ -182,8 +182,7 @@ public async Task<IActionResult> UpdateStatut(int id, [FromBody] UpdateStatutDto
 
     await _statutService.MettreAJourStatuts(sousTache.TacheId);
      if (statutEnum == StatutSousTache.ATester && sousTache.Tache?.TesteurId.HasValue == true)
-    {
-        // On vérifie aussi que le testeur n'est pas la personne qui a mis à jour (optionnel)
+    {  
         var testeurId = sousTache.Tache.TesteurId.Value;
         
         await _notificationService.NotifierSousTacheATester(
