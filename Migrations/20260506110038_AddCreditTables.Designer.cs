@@ -4,6 +4,7 @@ using GestionProjet.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GestionProjet.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260506110038_AddCreditTables")]
+    partial class AddCreditTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -22,19 +25,40 @@ namespace GestionProjet.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("EmployeGroupeEquipe", b =>
+            modelBuilder.Entity("CreditTransaction", b =>
                 {
-                    b.Property<int>("EmployeId")
+                    b.Property<string>("Id")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("Amount")
                         .HasColumnType("int");
 
-                    b.Property<int>("GroupeEquipeId")
-                        .HasColumnType("int");
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
 
-                    b.HasKey("EmployeId", "GroupeEquipeId");
+                    b.Property<string>("PaymentMethod")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
 
-                    b.HasIndex("GroupeEquipeId");
+                    b.Property<decimal>("Price")
+                        .HasColumnType("decimal(18,2)");
 
-                    b.ToTable("EmployeGroupeEquipe", (string)null);
+                    b.Property<string>("Reference")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("CreditTransactions");
                 });
 
             modelBuilder.Entity("GestionProjet.Models.Affectation", b =>
@@ -63,7 +87,10 @@ namespace GestionProjet.Migrations
             modelBuilder.Entity("GestionProjet.Models.Client", b =>
                 {
                     b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
                         .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<string>("EmailPrincipal")
                         .HasMaxLength(100)
@@ -178,10 +205,6 @@ namespace GestionProjet.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("AgentType")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<decimal>("CoutHoraire")
                         .HasColumnType("decimal(18,2)");
 
@@ -189,6 +212,9 @@ namespace GestionProjet.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("GroupeEquipeId")
+                        .HasColumnType("int");
 
                     b.Property<int?>("IdOrigineRH")
                         .HasColumnType("int");
@@ -204,6 +230,8 @@ namespace GestionProjet.Migrations
                         .HasColumnType("nvarchar(50)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("GroupeEquipeId");
 
                     b.ToTable("Employes");
                 });
@@ -633,6 +661,31 @@ namespace GestionProjet.Migrations
                     b.ToTable("TypesProjet");
                 });
 
+            modelBuilder.Entity("GestionProjet.Models.UserCredits", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FreeGenerationsUsedJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("TotalCredits")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("UsedCredits")
+                        .HasColumnType("int");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("UserCredits");
+                });
+
             modelBuilder.Entity("GestionProjet.Models.Utilisateur", b =>
                 {
                     b.Property<string>("Id")
@@ -852,21 +905,6 @@ namespace GestionProjet.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
-            modelBuilder.Entity("EmployeGroupeEquipe", b =>
-                {
-                    b.HasOne("GestionProjet.Models.Employe", null)
-                        .WithMany()
-                        .HasForeignKey("EmployeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("GestionProjet.Models.GroupeEquipe", null)
-                        .WithMany()
-                        .HasForeignKey("GroupeEquipeId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("GestionProjet.Models.Affectation", b =>
                 {
                     b.HasOne("GestionProjet.Models.Employe", "Employe")
@@ -903,6 +941,16 @@ namespace GestionProjet.Migrations
                     b.Navigation("Employe");
 
                     b.Navigation("SousTache");
+                });
+
+            modelBuilder.Entity("GestionProjet.Models.Employe", b =>
+                {
+                    b.HasOne("GestionProjet.Models.GroupeEquipe", "GroupeEquipe")
+                        .WithMany("Employes")
+                        .HasForeignKey("GroupeEquipeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("GroupeEquipe");
                 });
 
             modelBuilder.Entity("GestionProjet.Models.EmployeCompetence", b =>
@@ -1152,6 +1200,11 @@ namespace GestionProjet.Migrations
                     b.Navigation("Notifications");
 
                     b.Navigation("TestsEffectues");
+                });
+
+            modelBuilder.Entity("GestionProjet.Models.GroupeEquipe", b =>
+                {
+                    b.Navigation("Employes");
                 });
 
             modelBuilder.Entity("GestionProjet.Models.Phase", b =>

@@ -7,6 +7,7 @@ using GestionProjet.Enums;
 using GestionProjet.DTOs;
 using GestionProjet.Services;
 using ITANIS.SharedEvents;
+
 namespace GestionProjet.Controllers
 {
     [ApiController]
@@ -15,54 +16,60 @@ namespace GestionProjet.Controllers
     {
         private readonly ApplicationDbContext _context;
         private readonly NotificationService _notificationService;
- private readonly ProjetSyncService _syncService; 
+        private readonly ProjetSyncService _syncService;
+        private readonly ILogger<ProjetsController> _logger;
+
         public ProjetsController(
             ApplicationDbContext context,
             NotificationService service,
-            ProjetSyncService syncService)              
+            ProjetSyncService syncService,
+            ILogger<ProjetsController> logger)
         {
             _context = context;
             _notificationService = service;
             _syncService = syncService;
+            _logger = logger;
         }
-[HttpPost("upload-cdc/{projectId}")]
-public async Task<IActionResult> UploadCdc(int projectId, IFormFile file)
-{
-    var projet = await _context.Projets.FindAsync(projectId);
-    if (projet == null) return NotFound(new { message = "Projet non trouvé" });
 
-    if (file == null || file.Length == 0)
-        return BadRequest(new { message = "Aucun fichier fourni" });
-
-    var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-    if (extension != ".pdf" && extension != ".docx")
-        return BadRequest(new { message = "Seuls les fichiers PDF et DOCX sont acceptés." });
-
-    try
-    {
-        var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "cdc");
-        if (!Directory.Exists(uploadsFolder))
-            Directory.CreateDirectory(uploadsFolder);
-
-     
-        var safeFileName = $"{projectId}_{Guid.NewGuid()}{extension}";
-        var filePath = Path.Combine(uploadsFolder, safeFileName);
-
-        using (var stream = new FileStream(filePath, FileMode.Create))
+        [HttpPost("upload-cdc/{projectId}")]
+        public async Task<IActionResult> UploadCdc(int projectId, IFormFile file)
         {
-            await file.CopyToAsync(stream);
+            var projet = await _context.Projets.FindAsync(projectId);
+            if (projet == null) return NotFound(new { message = "Projet non trouvé" });
+
+            if (file == null || file.Length == 0)
+                return BadRequest(new { message = "Aucun fichier fourni" });
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (extension != ".pdf" && extension != ".docx")
+                return BadRequest(new { message = "Seuls les fichiers PDF et DOCX sont acceptés." });
+
+            try
+            {
+                var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "cdc");
+                if (!Directory.Exists(uploadsFolder))
+                    Directory.CreateDirectory(uploadsFolder);
+
+
+                var safeFileName = $"{projectId}_{Guid.NewGuid()}{extension}";
+                var filePath = Path.Combine(uploadsFolder, safeFileName);
+
+                using (var stream = new FileStream(filePath, FileMode.Create))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                projet.CdcFileUrl = $"/uploads/cdc/{safeFileName}";
+                await _context.SaveChangesAsync();
+
+                return Ok(new { cdcFileUrl = projet.CdcFileUrl });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Erreur lors de la sauvegarde du fichier" });
+            }
         }
 
-        projet.CdcFileUrl = $"/uploads/cdc/{safeFileName}";
-        await _context.SaveChangesAsync();
-
-        return Ok(new { cdcFileUrl = projet.CdcFileUrl });
-    }
-    catch (Exception ex)
-    {
-        return StatusCode(500, new { message = "Erreur lors de la sauvegarde du fichier" });
-    }
-}
         [HttpGet("mes-projets-chef")]
         [Authorize]
         public async Task<ActionResult> GetMesProjetsChef()
@@ -129,35 +136,35 @@ public async Task<IActionResult> UploadCdc(int projectId, IFormFile file)
             return Ok(result);
         }
 
-       [HttpGet("{id}")]
-public async Task<IActionResult> GetProjetById(int id)
-{
-    var projet = await _context.Projets
-        .Include(p => p.Client)
-        .Include(p => p.GroupeEquipe)
-            .ThenInclude(g => g.Employes)
-        .Include(p => p.Phases)
-            .ThenInclude(ph => ph.Taches)
-                .ThenInclude(t => t.Responsable)
-        .Include(p => p.Phases)
-            .ThenInclude(ph => ph.Taches)
-                .ThenInclude(t => t.Testeur)
-        .Include(p => p.Phases)
-            .ThenInclude(ph => ph.Taches)
-                .ThenInclude(t => t.SousTaches)
-        
-        .Include(p => p.Phases)
-            .ThenInclude(ph => ph.Taches)
-                .ThenInclude(t => t.TacheCompetences)
-                    .ThenInclude(tc => tc.Competence)
-        .FirstOrDefaultAsync(p => p.Id == id);
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetProjetById(int id)
+        {
+            var projet = await _context.Projets
+                .Include(p => p.Client)
+                .Include(p => p.GroupeEquipe)
+                    .ThenInclude(g => g.Employes)
+                .Include(p => p.Phases)
+                    .ThenInclude(ph => ph.Taches)
+                        .ThenInclude(t => t.Responsable)
+                .Include(p => p.Phases)
+                    .ThenInclude(ph => ph.Taches)
+                        .ThenInclude(t => t.Testeur)
+                .Include(p => p.Phases)
+                    .ThenInclude(ph => ph.Taches)
+                        .ThenInclude(t => t.SousTaches)
 
-    if (projet == null)
-        return NotFound();
+                .Include(p => p.Phases)
+                    .ThenInclude(ph => ph.Taches)
+                        .ThenInclude(t => t.TacheCompetences)
+                            .ThenInclude(tc => tc.Competence)
+                .FirstOrDefaultAsync(p => p.Id == id);
 
-    var dto = MapToProjetDetailDto(projet);
-    return Ok(dto);
-}
+            if (projet == null)
+                return NotFound();
+
+            var dto = MapToProjetDetailDto(projet);
+            return Ok(dto);
+        }
 
         private string CalculateProjectStatus(Projet projet)
         {
@@ -210,289 +217,222 @@ public async Task<IActionResult> GetProjetById(int id)
             return calculatedStatus;
         }
 
-      private ProjetDetailDto MapToProjetDetailDto(Projet projet)
+[HttpGet]
+[Authorize(Roles = "Admin")] 
+public async Task<ActionResult> GetAllProjets()
 {
-    var finalStatus = GetFinalProjectStatus(projet);
-
-    return new ProjetDetailDto
-    {
-        Id = projet.Id,
-        Nom = projet.Nom,
-        Description = projet.Description,
-        Lieu = projet.Lieu,
-        DateDebut = projet.DateDebut,
-        DateFinPrevue = projet.DateFinPrevue,
-        DateFinReelle = projet.DateFinReelle,
-        BudgetEstime = projet.BudgetEstime,
-        BudgetReel = projet.BudgetReel,
-        TypeProjet = projet.TypeProjet,
-        Statut = finalStatus,
-
-        Client = projet.Client == null ? null : new ClientDto
-        {
-            Id = projet.Client.Id,
-            Nom = projet.Client.RaisonSociale,
-        },
-
-        GroupeEquipe = projet.GroupeEquipe == null ? null : new GroupeEquipeDetailDto
-        {
-            Id = projet.GroupeEquipe.Id,
-            Nom = projet.GroupeEquipe.Nom,
-            TypeProjetCompatible = projet.GroupeEquipe.TypeProjetCompatible,
-            ChefEquipeId = projet.GroupeEquipe.ChefEquipeId,  
-            Employes = projet.GroupeEquipe.Employes.Select(e => new EmployeSimplifieDto
-            {
-                Id = e.Id,
-                NomComplet = e.NomComplet,
-                Role = e.Role.ToString()
-            }).ToList()
-        },
-
-        Phases = projet.Phases.Select(ph => new PhaseDetailDto
-        {
-            Id = ph.Id,
-            TypePhase = ph.TypePhase.ToString(),
-            Statut = ph.Statut.ToString(),
-            Taches = ph.Taches.Select(t => new TacheDetailDto
-            {
-                Id = t.Id,
-                Titre = t.Titre,
-                Statut = t.Statut.ToString(),
-                DateDebutPrevue = t.DateDebutPrevue,
-                DateFinPrevue = t.DateFinPrevue,
-                Responsable = t.Responsable == null ? null : new EmployeDto
-                {
-                    Id = t.Responsable.Id,
-                    NomComplet = t.Responsable.NomComplet,
-                    Email = t.Responsable.Email,
-                    Role = t.Responsable.Role.ToString()
-                },
-                Testeur = t.Testeur == null ? null : new EmployeDto
-                {
-                    Id = t.Testeur.Id,
-                    NomComplet = t.Testeur.NomComplet,
-                    Email = t.Testeur.Email,
-                    Role = t.Testeur.Role.ToString()
-                },
-                CompetencesRequises = t.TacheCompetences?.Select(tc => tc.Competence?.Nom).Where(n => n != null).ToList() ?? new List<string>(),
-                SousTaches = t.SousTaches.Select(st => new SousTacheSimplifieDto
-                {
-                    Id = st.Id,
-                    Titre = st.Titre,
-                    Statut = st.Statut,
-                    DureeEstimeeHeures = st.DureeEstimeeHeures
-                }).ToList()
-            }).ToList()
-        }).ToList()
-    };
-}
-
-[HttpGet("{id}/cdc/exists")]
-public async Task<IActionResult> CheckCdcExists(int id)
-{
-    var projet = await _context.Projets.FindAsync(id);
-    if (projet == null) return NotFound();
-    
-    return Ok(new { exists = !string.IsNullOrEmpty(projet.CdcFileUrl) });
-}
-
-[HttpGet("{id}/cdc/download")]
-public async Task<IActionResult> DownloadCdc(int id)
-{
-    var projet = await _context.Projets.FindAsync(id);
-    if (projet == null) return NotFound();
-    
-    if (string.IsNullOrEmpty(projet.CdcFileUrl))
-        return NotFound(new { message = "Aucun cahier des charges attaché" });
-    
-    var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", projet.CdcFileUrl.TrimStart('/'));
-    
-    if (!System.IO.File.Exists(filePath))
-        return NotFound(new { message = "Fichier introuvable" });
-    
-    var fileName = Path.GetFileName(filePath);
-    var contentType = Path.GetExtension(fileName).ToLower() == ".pdf" 
-        ? "application/pdf" 
-        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    
-    return PhysicalFile(filePath, contentType, fileName);
-}
-
-[HttpDelete("{id}/cdc")]
-public async Task<IActionResult> DeleteCdc(int id)
-{
-    var projet = await _context.Projets.FindAsync(id);
-    if (projet == null) return NotFound();
-    
-    if (!string.IsNullOrEmpty(projet.CdcFileUrl))
-    {
-        var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", projet.CdcFileUrl.TrimStart('/'));
-        if (System.IO.File.Exists(filePath))
-            System.IO.File.Delete(filePath);
-        
-        projet.CdcFileUrl = null;
-        await _context.SaveChangesAsync();
-    }
-    
-    return Ok(new { message = "Fichier supprimé" });
-}
-
-       [HttpPut("{id}")]
-[Authorize]
-public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto dto)
-{
-    var projet = await _context.Projets
-        .Include(p => p.Client)                    
+    var projets = await _context.Projets
+        .Include(p => p.Client)
+        .Include(p => p.GroupeEquipe)
+            .ThenInclude(g => g.Employes)
         .Include(p => p.Phases)
-            .ThenInclude(p => p.Taches)
+            .ThenInclude(ph => ph.Taches)
                 .ThenInclude(t => t.SousTaches)
-        .FirstOrDefaultAsync(p => p.Id == id);
-
-    if (projet == null)
-        return NotFound("Projet introuvable");
-
-    var existingAffectations = await _context.Affectations
-        .Include(a => a.SousTache)
-            .ThenInclude(st => st.Tache)
-                .ThenInclude(t => t.Phase)
-        .Where(a => a.SousTache.Tache.Phase.ProjetId == id)
+        .Include(p => p.Phases)
+            .ThenInclude(ph => ph.Taches)
+                .ThenInclude(t => t.Responsable)
+        .Include(p => p.Phases)
+            .ThenInclude(ph => ph.Taches)
+                .ThenInclude(t => t.Testeur)
         .ToListAsync();
 
-    projet.Nom = dto.Nom;
-    projet.Description = dto.Description;
-    projet.ClientId = dto.ClientId;
-    projet.Lieu = dto.Lieu;
-    projet.DateDebut = dto.DateDebut;
-    projet.DateFinPrevue = dto.DateFinPrevue;
-    projet.BudgetEstime = dto.BudgetEstime;
-    projet.BudgetReel = dto.BudgetReel ?? projet.BudgetReel;
-    projet.TypeProjet = dto.TypeProjet;
+    var result = projets.Select(p => MapToProjetDetailDto(p));
 
-    foreach (var phaseDto in dto.Phases)
-    {
-        var existingPhase = projet.Phases.FirstOrDefault(p => p.TypePhase.ToString() == phaseDto.TypePhase);
-
-        if (existingPhase == null)
+    return Ok(result);
+}
+        private ProjetDetailDto MapToProjetDetailDto(Projet projet)
         {
-            var newPhase = new Phase
+            var finalStatus = GetFinalProjectStatus(projet);
+
+            return new ProjetDetailDto
             {
-                TypePhase = Enum.Parse<TypePhase>(phaseDto.TypePhase),
-                PourcentageBudget = phaseDto.PourcentageBudget,
-                Statut = StatutPhase.ADemarrer,
-                Taches = new List<Tache>()
+                Id = projet.Id,
+                Nom = projet.Nom,
+                Description = projet.Description,
+                Lieu = projet.Lieu,
+                DateDebut = projet.DateDebut,
+                DateFinPrevue = projet.DateFinPrevue,
+                DateFinReelle = projet.DateFinReelle,
+                BudgetEstime = projet.BudgetEstime,
+                BudgetReel = projet.BudgetReel,
+                TypeProjet = projet.TypeProjet,
+                Statut = finalStatus,
+
+                Client = projet.Client == null ? null : new ClientDto
+                {
+                    Id = projet.Client.Id,
+                    Nom = projet.Client.RaisonSociale,
+                },
+
+                GroupeEquipe = projet.GroupeEquipe == null ? null : new GroupeEquipeDetailDto
+                {
+                    Id = projet.GroupeEquipe.Id,
+                    Nom = projet.GroupeEquipe.Nom,
+                    TypeProjetCompatible = projet.GroupeEquipe.TypeProjetCompatible,
+                    ChefEquipeId = projet.GroupeEquipe.ChefEquipeId,
+                    Employes = projet.GroupeEquipe.Employes.Select(e => new EmployeSimplifieDto
+                    {
+                        Id = e.Id,
+                        NomComplet = e.NomComplet,
+                        Role = e.Role.ToString()
+                    }).ToList()
+                },
+
+                Phases = projet.Phases.Select(ph => new PhaseDetailDto
+                {
+                    Id = ph.Id,
+                    TypePhase = ph.TypePhase.ToString(),
+                    Statut = ph.Statut.ToString(),
+                    Taches = ph.Taches.Select(t => new TacheDetailDto
+                    {
+                        Id = t.Id,
+                        Titre = t.Titre,
+                        Statut = t.Statut.ToString(),
+                        DateDebutPrevue = t.DateDebutPrevue,
+                        DateFinPrevue = t.DateFinPrevue,
+                        Responsable = t.Responsable == null ? null : new EmployeDto
+                        {
+                            Id = t.Responsable.Id,
+                            NomComplet = t.Responsable.NomComplet,
+                            Email = t.Responsable.Email,
+                            Role = t.Responsable.Role.ToString()
+                        },
+                        Testeur = t.Testeur == null ? null : new EmployeDto
+                        {
+                            Id = t.Testeur.Id,
+                            NomComplet = t.Testeur.NomComplet,
+                            Email = t.Testeur.Email,
+                            Role = t.Testeur.Role.ToString()
+                        },
+                        CompetencesRequises = t.TacheCompetences?.Select(tc => tc.Competence?.Nom).Where(n => n != null).ToList() ?? new List<string>(),
+                        SousTaches = t.SousTaches.Select(st => new SousTacheSimplifieDto
+                        {
+                            Id = st.Id,
+                            Titre = st.Titre,
+                            Statut = st.Statut,
+                            DureeEstimeeHeures = st.DureeEstimeeHeures
+                        }).ToList()
+                    }).ToList()
+                }).ToList()
             };
-
-            foreach (var tacheDto in phaseDto.Taches)
-            {
-                var newTache = new Tache
-                {
-                    Titre = tacheDto.Titre,
-                    DateDebutPrevue = tacheDto.DateDebutPrevue,
-                    DateFinPrevue = tacheDto.DateFinPrevue,
-                    ResponsableId = tacheDto.ResponsableId,
-                    TesteurId = tacheDto.TesteurId,
-                    SousTaches = new List<SousTache>()
-                };
-
-                foreach (var stDto in tacheDto.SousTaches)
-                {
-                    var newSousTache = new SousTache
-                    {
-                        Titre = stDto.Titre,
-                        DureeEstimeeHeures = stDto.DureeEstimeeHeures,
-                        Statut = Enum.TryParse<StatutSousTache>(stDto.Statut.ToString(), true, out var statutParsed)
-                            ? statutParsed
-                            : StatutSousTache.AFaire,
-                    };
-                    newTache.SousTaches.Add(newSousTache);
-
-                    if (tacheDto.ResponsableId.HasValue)
-                    {
-                        var affectation = new Affectation
-                        {
-                            SousTache = newSousTache,
-                            EmployeId = tacheDto.ResponsableId.Value
-                        };
-                        _context.Affectations.Add(affectation);
-                    }
-                }
-
-                newPhase.Taches.Add(newTache);
-
-                if (tacheDto.ResponsableId.HasValue)
-                {
-                    await _notificationService.NotifierAssignationResponsable(
-                        newTache.Id, tacheDto.ResponsableId.Value,
-                        projet.Nom, tacheDto.Titre);
-                }
-            }
-            projet.Phases.Add(newPhase);
         }
-        else
+
+        [HttpGet("{id}/cdc/exists")]
+        public async Task<IActionResult> CheckCdcExists(int id)
         {
-            existingPhase.PourcentageBudget = phaseDto.PourcentageBudget;
+            var projet = await _context.Projets.FindAsync(id);
+            if (projet == null) return NotFound();
 
-            foreach (var tacheDto in phaseDto.Taches)
+            return Ok(new { exists = !string.IsNullOrEmpty(projet.CdcFileUrl) });
+        }
+
+        [HttpGet("{id}/cdc/download")]
+        public async Task<IActionResult> DownloadCdc(int id)
+        {
+            var projet = await _context.Projets.FindAsync(id);
+            if (projet == null) return NotFound();
+
+            if (string.IsNullOrEmpty(projet.CdcFileUrl))
+                return NotFound(new { message = "Aucun cahier des charges attaché" });
+
+            var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", projet.CdcFileUrl.TrimStart('/'));
+
+            if (!System.IO.File.Exists(filePath))
+                return NotFound(new { message = "Fichier introuvable" });
+
+            var fileName = Path.GetFileName(filePath);
+            var contentType = Path.GetExtension(fileName).ToLower() == ".pdf"
+                ? "application/pdf"
+                : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+            return PhysicalFile(filePath, contentType, fileName);
+        }
+
+        [HttpDelete("{id}/cdc")]
+        public async Task<IActionResult> DeleteCdc(int id)
+        {
+            var projet = await _context.Projets.FindAsync(id);
+            if (projet == null) return NotFound();
+
+            if (!string.IsNullOrEmpty(projet.CdcFileUrl))
             {
-                var existingTache = existingPhase.Taches.FirstOrDefault(t => t.Titre == tacheDto.Titre);
+                var filePath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", projet.CdcFileUrl.TrimStart('/'));
+                if (System.IO.File.Exists(filePath))
+                    System.IO.File.Delete(filePath);
 
-                if (existingTache == null)
+                projet.CdcFileUrl = null;
+                await _context.SaveChangesAsync();
+            }
+
+            return Ok(new { message = "Fichier supprimé" });
+        }
+
+        [HttpPut("{id}")]
+        [Authorize]
+        public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto dto)
+        {
+            var projet = await _context.Projets
+                .Include(p => p.Client)
+                .Include(p => p.Phases)
+                    .ThenInclude(p => p.Taches)
+                        .ThenInclude(t => t.SousTaches)
+                .FirstOrDefaultAsync(p => p.Id == id);
+
+            if (projet == null)
+                return NotFound("Projet introuvable");
+
+            var existingAffectations = await _context.Affectations
+                .Include(a => a.SousTache)
+                    .ThenInclude(st => st.Tache)
+                        .ThenInclude(t => t.Phase)
+                .Where(a => a.SousTache.Tache.Phase.ProjetId == id)
+                .ToListAsync();
+
+            // ✅ Récupérer toutes les sous-tâches du projet pour supprimer leurs tests
+            var allSousTacheIdsInProject = projet.Phases
+                .SelectMany(p => p.Taches)
+                .SelectMany(t => t.SousTaches)
+                .Select(st => st.Id)
+                .ToList();
+
+            projet.Nom = dto.Nom;
+            projet.Description = dto.Description;
+            projet.ClientId = dto.ClientId;
+            projet.Lieu = dto.Lieu;
+            projet.DateDebut = dto.DateDebut;
+            projet.DateFinPrevue = dto.DateFinPrevue;
+            projet.BudgetEstime = dto.BudgetEstime;
+            projet.BudgetReel = dto.BudgetReel ?? projet.BudgetReel;
+            projet.TypeProjet = dto.TypeProjet;
+
+            // Traitement des phases
+            foreach (var phaseDto in dto.Phases)
+            {
+                var existingPhase = projet.Phases.FirstOrDefault(p => p.TypePhase.ToString() == phaseDto.TypePhase);
+
+                if (existingPhase == null)
                 {
-                    var newTache = new Tache
+                    var newPhase = new Phase
                     {
-                        Titre = tacheDto.Titre,
-                        DateDebutPrevue = tacheDto.DateDebutPrevue,
-                        DateFinPrevue = tacheDto.DateFinPrevue,
-                        ResponsableId = tacheDto.ResponsableId,
-                        TesteurId = tacheDto.TesteurId,
-                        SousTaches = new List<SousTache>()
+                        TypePhase = Enum.Parse<TypePhase>(phaseDto.TypePhase),
+                        PourcentageBudget = phaseDto.PourcentageBudget,
+                        Statut = StatutPhase.ADemarrer,
+                        Taches = new List<Tache>()
                     };
 
-                    foreach (var stDto in tacheDto.SousTaches)
+                    foreach (var tacheDto in phaseDto.Taches)
                     {
-                        var newSousTache = new SousTache
+                        var newTache = new Tache
                         {
-                            Titre = stDto.Titre,
-                            DureeEstimeeHeures = stDto.DureeEstimeeHeures,
-                            Statut = Enum.TryParse<StatutSousTache>(stDto.Statut.ToString(), true, out var statutParsed)
-                                ? statutParsed
-                                : StatutSousTache.AFaire,
+                            Titre = tacheDto.Titre,
+                            DateDebutPrevue = tacheDto.DateDebutPrevue,
+                            DateFinPrevue = tacheDto.DateFinPrevue,
+                            ResponsableId = tacheDto.ResponsableId,
+                            TesteurId = tacheDto.TesteurId,
+                            SousTaches = new List<SousTache>()
                         };
-                        newTache.SousTaches.Add(newSousTache);
 
-                        if (tacheDto.ResponsableId.HasValue)
-                        {
-                            var affectation = new Affectation
-                            {
-                                SousTache = newSousTache,
-                                EmployeId = tacheDto.ResponsableId.Value,
-                            };
-                            _context.Affectations.Add(affectation);
-                        }
-                    }
-                    existingPhase.Taches.Add(newTache);
-
-                    if (tacheDto.ResponsableId.HasValue)
-                    {
-                        await _notificationService.NotifierAssignationResponsable(
-                            newTache.Id, tacheDto.ResponsableId.Value,
-                            projet.Nom, tacheDto.Titre);
-                    }
-                }
-                else
-                {
-                    var oldResponsableId = existingTache.ResponsableId;
-                    existingTache.Titre = tacheDto.Titre;
-                    existingTache.DateDebutPrevue = tacheDto.DateDebutPrevue;
-                    existingTache.DateFinPrevue = tacheDto.DateFinPrevue;
-                    existingTache.ResponsableId = tacheDto.ResponsableId;
-                    existingTache.TesteurId = tacheDto.TesteurId;
-
-                    foreach (var stDto in tacheDto.SousTaches)
-                    {
-                        var existingSt = existingTache.SousTaches.FirstOrDefault(st => st.Titre == stDto.Titre);
-
-                        if (existingSt == null)
+                        foreach (var stDto in tacheDto.SousTaches)
                         {
                             var newSousTache = new SousTache
                             {
@@ -502,7 +442,7 @@ public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto 
                                     ? statutParsed
                                     : StatutSousTache.AFaire,
                             };
-                            existingTache.SousTaches.Add(newSousTache);
+                            newTache.SousTaches.Add(newSousTache);
 
                             if (tacheDto.ResponsableId.HasValue)
                             {
@@ -514,184 +454,327 @@ public async Task<ActionResult> UpdateProjet(int id, [FromBody] CreateProjetDto 
                                 _context.Affectations.Add(affectation);
                             }
                         }
+
+                        newPhase.Taches.Add(newTache);
+
+                        if (tacheDto.ResponsableId.HasValue)
+                        {
+                            await _notificationService.NotifierAssignationResponsable(
+                                newTache.Id, tacheDto.ResponsableId.Value,
+                                projet.Nom, tacheDto.Titre);
+                        }
+                    }
+                    projet.Phases.Add(newPhase);
+                }
+                else
+                {
+                    existingPhase.PourcentageBudget = phaseDto.PourcentageBudget;
+
+                    foreach (var tacheDto in phaseDto.Taches)
+                    {
+                        var existingTache = existingPhase.Taches.FirstOrDefault(t => t.Titre == tacheDto.Titre);
+
+                        if (existingTache == null)
+                        {
+                            var newTache = new Tache
+                            {
+                                Titre = tacheDto.Titre,
+                                DateDebutPrevue = tacheDto.DateDebutPrevue,
+                                DateFinPrevue = tacheDto.DateFinPrevue,
+                                ResponsableId = tacheDto.ResponsableId,
+                                TesteurId = tacheDto.TesteurId,
+                                SousTaches = new List<SousTache>()
+                            };
+
+                            foreach (var stDto in tacheDto.SousTaches)
+                            {
+                                var newSousTache = new SousTache
+                                {
+                                    Titre = stDto.Titre,
+                                    DureeEstimeeHeures = stDto.DureeEstimeeHeures,
+                                    Statut = Enum.TryParse<StatutSousTache>(stDto.Statut.ToString(), true, out var statutParsed)
+                                        ? statutParsed
+                                        : StatutSousTache.AFaire,
+                                };
+                                newTache.SousTaches.Add(newSousTache);
+
+                                if (tacheDto.ResponsableId.HasValue)
+                                {
+                                    var affectation = new Affectation
+                                    {
+                                        SousTache = newSousTache,
+                                        EmployeId = tacheDto.ResponsableId.Value
+                                    };
+                                    _context.Affectations.Add(affectation);
+                                }
+                            }
+                            existingPhase.Taches.Add(newTache);
+
+                            if (tacheDto.ResponsableId.HasValue)
+                            {
+                                await _notificationService.NotifierAssignationResponsable(
+                                    newTache.Id, tacheDto.ResponsableId.Value,
+                                    projet.Nom, tacheDto.Titre);
+                            }
+                        }
                         else
                         {
-                            existingSt.Titre = stDto.Titre;
-                            existingSt.DureeEstimeeHeures = stDto.DureeEstimeeHeures;
+                            var oldResponsableId = existingTache.ResponsableId;
+                            existingTache.Titre = tacheDto.Titre;
+                            existingTache.DateDebutPrevue = tacheDto.DateDebutPrevue;
+                            existingTache.DateFinPrevue = tacheDto.DateFinPrevue;
+                            existingTache.ResponsableId = tacheDto.ResponsableId;
+                            existingTache.TesteurId = tacheDto.TesteurId;
 
-                            if (stDto.Statut != null && stDto.Statut.ToString() != existingSt.Statut.ToString())
+                            foreach (var stDto in tacheDto.SousTaches)
                             {
-                                existingSt.Statut = Enum.TryParse<StatutSousTache>(stDto.Statut.ToString(), true, out var statutParsed)
-                                    ? statutParsed
-                                    : existingSt.Statut;
-                            }
+                                var existingSt = existingTache.SousTaches.FirstOrDefault(st => st.Titre == stDto.Titre);
 
-                            var existingAffectation = existingAffectations
-                                .FirstOrDefault(a => a.SousTacheId == existingSt.Id);
-
-                            if (existingAffectation != null && tacheDto.ResponsableId.HasValue &&
-                                existingAffectation.EmployeId != tacheDto.ResponsableId.Value)
-                            {
-                                existingAffectation.EmployeId = tacheDto.ResponsableId.Value;
-                            }
-                            else if (existingAffectation == null && tacheDto.ResponsableId.HasValue)
-                            {
-                                var newAffectation = new Affectation
+                                if (existingSt == null)
                                 {
-                                    SousTacheId = existingSt.Id,
-                                    EmployeId = tacheDto.ResponsableId.Value,
-                                };
-                                _context.Affectations.Add(newAffectation);
+                                    var newSousTache = new SousTache
+                                    {
+                                        Titre = stDto.Titre,
+                                        DureeEstimeeHeures = stDto.DureeEstimeeHeures,
+                                        Statut = Enum.TryParse<StatutSousTache>(stDto.Statut.ToString(), true, out var statutParsed)
+                                            ? statutParsed
+                                            : StatutSousTache.AFaire,
+                                    };
+                                    existingTache.SousTaches.Add(newSousTache);
+
+                                    if (tacheDto.ResponsableId.HasValue)
+                                    {
+                                        var affectation = new Affectation
+                                        {
+                                            SousTache = newSousTache,
+                                            EmployeId = tacheDto.ResponsableId.Value
+                                        };
+                                        _context.Affectations.Add(affectation);
+                                    }
+                                }
+                                else
+                                {
+                                    existingSt.Titre = stDto.Titre;
+                                    existingSt.DureeEstimeeHeures = stDto.DureeEstimeeHeures;
+
+                                    if (stDto.Statut != null && stDto.Statut.ToString() != existingSt.Statut.ToString())
+                                    {
+                                        existingSt.Statut = Enum.TryParse<StatutSousTache>(stDto.Statut.ToString(), true, out var statutParsed)
+                                            ? statutParsed
+                                            : existingSt.Statut;
+                                    }
+
+                                    var existingAffectation = existingAffectations
+                                        .FirstOrDefault(a => a.SousTacheId == existingSt.Id);
+
+                                    if (existingAffectation != null && tacheDto.ResponsableId.HasValue &&
+                                        existingAffectation.EmployeId != tacheDto.ResponsableId.Value)
+                                    {
+                                        existingAffectation.EmployeId = tacheDto.ResponsableId.Value;
+                                    }
+                                    else if (existingAffectation == null && tacheDto.ResponsableId.HasValue)
+                                    {
+                                        var newAffectation = new Affectation
+                                        {
+                                            SousTacheId = existingSt.Id,
+                                            EmployeId = tacheDto.ResponsableId.Value
+                                        };
+                                        _context.Affectations.Add(newAffectation);
+                                    }
+                                }
+                            }
+
+                            // ✅ Supprimer les sous-tâches qui ne sont plus dans le DTO
+                            var stToRemove = existingTache.SousTaches
+                                .Where(st => !tacheDto.SousTaches.Any(stdto => stdto.Titre == st.Titre))
+                                .ToList();
+
+                            foreach (var st in stToRemove)
+                            {
+                                // ✅ Supprimer les tests liés à cette sous-tâche
+                                var testsForSt = await _context.Tests.Where(t => t.SousTacheId == st.Id).ToListAsync();
+                                if (testsForSt.Any())
+                                {
+                                    _context.Tests.RemoveRange(testsForSt);
+                                    _logger.LogInformation("✅ {Count} tests supprimés pour la sous-tâche {SousTacheId}", testsForSt.Count, st.Id);
+                                }
+
+                                var affectationsToRemove = existingAffectations.Where(a => a.SousTacheId == st.Id).ToList();
+                                _context.Affectations.RemoveRange(affectationsToRemove);
+                                _context.SousTaches.Remove(st);
+                            }
+
+                            if (tacheDto.ResponsableId != oldResponsableId && tacheDto.ResponsableId.HasValue)
+                            {
+                                await _notificationService.NotifierAssignationResponsable(
+                                    existingTache.Id, tacheDto.ResponsableId.Value,
+                                    projet.Nom, tacheDto.Titre);
                             }
                         }
                     }
 
-                    var stToRemove = existingTache.SousTaches
-                        .Where(st => !tacheDto.SousTaches.Any(stdto => stdto.Titre == st.Titre))
+                    // ✅ Supprimer les tâches qui ne sont plus dans le DTO
+                    var tachesToRemove = existingPhase.Taches
+                        .Where(t => !phaseDto.Taches.Any(tdto => tdto.Titre == t.Titre))
                         .ToList();
 
-                    foreach (var st in stToRemove)
+                    foreach (var tache in tachesToRemove)
                     {
-                        var affectationsToRemove = existingAffectations.Where(a => a.SousTacheId == st.Id).ToList();
-                        _context.Affectations.RemoveRange(affectationsToRemove);
-                        _context.SousTaches.Remove(st);
-                    }
-
-                    if (tacheDto.ResponsableId != oldResponsableId && tacheDto.ResponsableId.HasValue)
-                    {
-                        await _notificationService.NotifierAssignationResponsable(
-                            existingTache.Id, tacheDto.ResponsableId.Value,
-                            projet.Nom, tacheDto.Titre);
-                    }
-                }
-            }
-
-            var tachesToRemove = existingPhase.Taches
-                .Where(t => !phaseDto.Taches.Any(tdto => tdto.Titre == t.Titre))
-                .ToList();
-
-            foreach (var tache in tachesToRemove)
-            {
-                var affectationsToRemove = existingAffectations
-                    .Where(a => tache.SousTaches.Select(st => st.Id).Contains(a.SousTacheId))
-                    .ToList();
-                _context.Affectations.RemoveRange(affectationsToRemove);
-                _context.SousTaches.RemoveRange(tache.SousTaches);
-                _context.Taches.Remove(tache);
-            }
-        }
-    }
-
-    var phasesToRemove = projet.Phases
-        .Where(p => !dto.Phases.Any(pdto => pdto.TypePhase == p.TypePhase.ToString()))
-        .ToList();
-
-    foreach (var phase in phasesToRemove)
-    {
-        foreach (var tache in phase.Taches)
-        {
-            var affectationsToRemove = existingAffectations
-                .Where(a => tache.SousTaches.Select(st => st.Id).Contains(a.SousTacheId))
-                .ToList();
-            _context.Affectations.RemoveRange(affectationsToRemove);
-            _context.SousTaches.RemoveRange(tache.SousTaches);
-            _context.Taches.Remove(tache);
-        }
-        _context.Phases.Remove(phase);
-    }
-
-    await _context.SaveChangesAsync();
-
-    await UpdateTaskCompetencesFromDto(projet.Id, dto);
-
-    await _notificationService.NotifierProjetsProchesFin();
-    await _syncService.PublierVersCRM(projet, SyncAction.Updated);
-
-    return Ok(new { message = "Projet mis à jour avec succès" });
-}
-
-private async Task UpdateTaskCompetencesFromDto(int projetId, CreateProjetDto dto)
-{
-    var allTasks = await _context.Taches
-        .Include(t => t.Phase)
-        .Include(t => t.TacheCompetences)
-        .Where(t => t.Phase.ProjetId == projetId)
-        .ToListAsync();
-
-    var taskDict = new Dictionary<string, Tache>();
-    foreach (var task in allTasks)
-    {
-        var key = $"{task.Phase.TypePhase}_{task.Titre}";
-        taskDict[key] = task;
-    }
-    foreach (var phaseDto in dto.Phases)
-    {
-        foreach (var tacheDto in phaseDto.Taches)
-        {
-            var key = $"{phaseDto.TypePhase}_{tacheDto.Titre}";
-            if (!taskDict.TryGetValue(key, out var task))
-                continue;
-
-            var existingCompetences = _context.TacheCompetences.Where(tc => tc.TacheId == task.Id);
-            _context.TacheCompetences.RemoveRange(existingCompetences);
-
-            if (tacheDto.CompetencesRequises != null && tacheDto.CompetencesRequises.Any())
-            {
-                foreach (var compNom in tacheDto.CompetencesRequises)
-                {
-                    var competence = await _context.Competences.FirstOrDefaultAsync(c => c.Nom == compNom);
-                    if (competence != null)
-                    {
-                        _context.TacheCompetences.Add(new TacheCompetence
+                        // Supprimer les tests de toutes les sous-tâches de cette tâche
+                        var stIdsInTache = tache.SousTaches.Select(st => st.Id).ToList();
+                        var testsForTache = await _context.Tests.Where(t => stIdsInTache.Contains(t.SousTacheId)).ToListAsync();
+                        if (testsForTache.Any())
                         {
-                            TacheId = task.Id,  
-                            CompetenceId = competence.Id,
-                            NiveauRequis = "Intermédiaire"
-                        });
+                            _context.Tests.RemoveRange(testsForTache);
+                            _logger.LogInformation("✅ {Count} tests supprimés pour la tâche {TacheId}", testsForTache.Count, tache.Id);
+                        }
+
+                        var affectationsToRemove = existingAffectations
+                            .Where(a => tache.SousTaches.Select(st => st.Id).Contains(a.SousTacheId))
+                            .ToList();
+                        _context.Affectations.RemoveRange(affectationsToRemove);
+                        _context.SousTaches.RemoveRange(tache.SousTaches);
+                        _context.Taches.Remove(tache);
                     }
                 }
             }
-        }
-    }
 
-    await _context.SaveChangesAsync();
-}
-        [HttpPost("{id}/membres")]
+            // ✅ Supprimer les phases qui ne sont plus dans le DTO
+            var phasesToRemove = projet.Phases
+                .Where(p => !dto.Phases.Any(pdto => pdto.TypePhase == p.TypePhase.ToString()))
+                .ToList();
+
+            foreach (var phase in phasesToRemove)
+            {
+                foreach (var tache in phase.Taches)
+                {
+                    var stIdsInPhase = tache.SousTaches.Select(st => st.Id).ToList();
+                    var testsForPhase = await _context.Tests.Where(t => stIdsInPhase.Contains(t.SousTacheId)).ToListAsync();
+                    if (testsForPhase.Any())
+                    {
+                        _context.Tests.RemoveRange(testsForPhase);
+                        _logger.LogInformation("✅ {Count} tests supprimés pour la phase {PhaseId}", testsForPhase.Count, phase.Id);
+                    }
+
+                    var affectationsToRemove = existingAffectations
+                        .Where(a => tache.SousTaches.Select(st => st.Id).Contains(a.SousTacheId))
+                        .ToList();
+                    _context.Affectations.RemoveRange(affectationsToRemove);
+                    _context.SousTaches.RemoveRange(tache.SousTaches);
+                    _context.Taches.Remove(tache);
+                }
+                _context.Phases.Remove(phase);
+            }
+
+            await _context.SaveChangesAsync();
+            await UpdateTaskCompetencesFromDto(projet.Id, dto);
+            await _notificationService.NotifierProjetsProchesFin();
+            await _syncService.PublierVersCRM(projet, SyncAction.Updated);
+
+            return Ok(new { message = "Projet mis à jour avec succès" });
+        }
+
+        private async Task UpdateTaskCompetencesFromDto(int projetId, CreateProjetDto dto)
+        {
+            var allTasks = await _context.Taches
+                .Include(t => t.Phase)
+                .Include(t => t.TacheCompetences)
+                .Where(t => t.Phase.ProjetId == projetId)
+                .ToListAsync();
+
+            var taskDict = new Dictionary<string, Tache>();
+            foreach (var task in allTasks)
+            {
+                var key = $"{task.Phase.TypePhase}_{task.Titre}";
+                taskDict[key] = task;
+            }
+            foreach (var phaseDto in dto.Phases)
+            {
+                foreach (var tacheDto in phaseDto.Taches)
+                {
+                    var key = $"{phaseDto.TypePhase}_{tacheDto.Titre}";
+                    if (!taskDict.TryGetValue(key, out var task))
+                        continue;
+
+                    var existingCompetences = _context.TacheCompetences.Where(tc => tc.TacheId == task.Id);
+                    _context.TacheCompetences.RemoveRange(existingCompetences);
+
+                    if (tacheDto.CompetencesRequises != null && tacheDto.CompetencesRequises.Any())
+                    {
+                        foreach (var compNom in tacheDto.CompetencesRequises)
+                        {
+                            var competence = await _context.Competences.FirstOrDefaultAsync(c => c.Nom == compNom);
+                            if (competence != null)
+                            {
+                                _context.TacheCompetences.Add(new TacheCompetence
+                                {
+                                    TacheId = task.Id,
+                                    CompetenceId = competence.Id,
+                                    NiveauRequis = "Intermédiaire"
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            await _context.SaveChangesAsync();
+        }
+
+               [HttpPost("{id}/membres")]
         public async Task<IActionResult> AjouterMembres(int id, [FromBody] List<int> employeIds)
         {
-            var equipe = await _context.GroupesEquipe
-                .Include(g => g.Employes)
-                .FirstOrDefaultAsync(g => g.Id == id);
+            // 1. Récupérer le PROJET via l'ID de l'URL
+            var projet = await _context.Projets
+                .Include(p => p.GroupeEquipe)
+                    .ThenInclude(g => g.Employes) // Charge les membres actuels pour éviter les doublons
+                .FirstOrDefaultAsync(p => p.Id == id);
 
-            if (equipe == null)
-                return NotFound("Equipe introuvable");
+            if (projet == null) return NotFound("Projet introuvable");
+            if (projet.GroupeEquipe == null) return BadRequest("Ce projet n'a pas d'équipe assignée");
 
+            var equipe = projet.GroupeEquipe;
+            
             var employes = await _context.Employes
                 .Where(e => employeIds.Contains(e.Id))
                 .ToListAsync();
 
             foreach (var emp in employes)
             {
-                emp.GroupeEquipeId = id;
+                // ✅ LOGIQUE N-N : Ajouter l'employé à la collection de l'équipe
+                if (!equipe.Employes.Any(e => e.Id == emp.Id))
+                {
+                    equipe.Employes.Add(emp);
+                }
             }
 
             await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Membres ajoutés à l'équipe" });
+            return Ok(new { message = "Membres ajoutés à l'équipe du projet" });
         }
 
         [HttpDelete("{id}/membres/{employeId}")]
         public async Task<IActionResult> RemoveMembre(int id, int employeId)
         {
-            var employe = await _context.Employes.FindAsync(employeId);
+            // 1. Récupérer le PROJET via l'ID de l'URL
+            var projet = await _context.Projets
+                .Include(p => p.GroupeEquipe)
+                    .ThenInclude(g => g.Employes) // Charge la collection pour pouvoir retirer
+                .FirstOrDefaultAsync(p => p.Id == id);
 
-            if (employe == null)
-                return NotFound("Employé introuvable");
+            if (projet == null) return NotFound("Projet introuvable");
+            if (projet.GroupeEquipe == null) return BadRequest("Ce projet n'a pas d'équipe assignée");
 
-            if (employe.GroupeEquipeId != id)
-                return BadRequest("Cet employé n'appartient pas à cette équipe");
+            var equipe = projet.GroupeEquipe;
+            
+            // Chercher l'employé DANS la collection de l'équipe de ce projet
+            var employe = equipe.Employes.FirstOrDefault(e => e.Id == employeId);
 
-            employe.GroupeEquipeId = null;
+            if (employe == null) 
+                return BadRequest("Cet employé ne fait pas partie de l'équipe de ce projet");
+
+            // ✅ LOGIQUE N-N : Retirer l'employé de la collection
+            equipe.Employes.Remove(employe);
 
             await _context.SaveChangesAsync();
 

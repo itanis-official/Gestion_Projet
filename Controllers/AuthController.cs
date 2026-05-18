@@ -124,7 +124,7 @@ public async Task<ActionResult<AuthResponseDto>> Register(RegisterDto registerDt
         await _userManager.UpdateAsync(user);
     }
 
-    await _userManager.AddToRoleAsync(user, "Employe");
+    await _userManager.AddToRoleAsync(user, "Admin");
 
     var roles = await _userManager.GetRolesAsync(user);
     var token = _jwtService.GenerateJwtToken(user, roles);

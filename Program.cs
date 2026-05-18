@@ -149,10 +149,12 @@ builder.Services.AddScoped<ProjetService>();
 builder.Services.AddScoped<LoadBalancingService>();
 builder.Services.AddHttpClient<GroqService>();
 builder.Services.AddScoped<ProjetSyncService>();
+builder.Services.AddScoped<PlanningValidationService>();
 builder.Services.AddMassTransit(x =>
 {
     x.AddConsumer<OpportuniteConvertieConsumer>();
-    x.AddConsumer<CompanySyncConsumer>();   
+    x.AddConsumer<CompanySyncConsumer>();  
+    x.AddConsumer<EquipeSyncEventConsumer>();
     x.AddConsumer<AgentSyncConsumer>();     
     x.AddConsumer<TypeProjetSyncEventConsumer>();
     x.AddConsumer<TacheResponsableReassignedConsumer>();

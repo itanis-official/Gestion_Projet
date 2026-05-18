@@ -8,21 +8,18 @@ public class GroqService
     private readonly HttpClient _http;
     private readonly string? _apiKey;
     private readonly ILogger<GroqService> _logger;
+   private static readonly string[] ModelFallbackList = 
+        {
+            "llama-3.3-70b-versatile", // Meilleur modèle
+            "llama-3.1-8b-instant",   // Rapide (nécessite le fix de l'étape 1)
+        };
 
-    
-    private static readonly string[] ModelFallbackList = 
-    {
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "llama3-70b-8192",
-        "llama3-8b-8192"
-    };
+        private readonly Dictionary<string, string> _availableModels = new()
+        {
+            { "llama-3.3-70b-versatile", "Llama 3.3 70B (Haute performance)" },
+            { "llama-3.1-8b-instant", "Llama 3.1 8B (Rapide)" },
+        };
 
-    private readonly Dictionary<string, string> _availableModels = new()
-    {
-        { "llama-3.3-70b-versatile", "Llama 3.3 70B (Haute performance)" },
-        { "llama-3.1-8b-instant", "Llama 3.1 8B (Rapide)" },
-    };
 
     public GroqService(HttpClient http, IConfiguration config, ILogger<GroqService> logger)
     {

@@ -23,11 +23,10 @@ public class Employe
     public string Role { get; set; } = string.Empty;
     [Column(TypeName = "decimal(18,2)")]
     public decimal CoutHoraire { get; set; }
+    public string AgentType { get; set; } = "interne"; 
     
-    public int? GroupeEquipeId { get; set; }
+public virtual ICollection<GroupeEquipe> Groupes { get; set; } = new List<GroupeEquipe>();
     
-    [ForeignKey("GroupeEquipeId")]
-    public virtual GroupeEquipe? GroupeEquipe { get; set; }
     public virtual ICollection<EmployeCompetence> EmployeCompetences { get; set; } = new List<EmployeCompetence>();
     
     public virtual ICollection<Affectation> Affectations { get; set; } = new List<Affectation>();

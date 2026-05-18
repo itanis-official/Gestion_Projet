@@ -3,6 +3,7 @@ using GestionProjet.Data;
 using GestionProjet.Models;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace GestionProjet.Consumers;
 
@@ -22,116 +23,167 @@ public class EquipeSyncEventConsumer : IConsumer<EquipeSyncEvent>
     public async Task Consume(ConsumeContext<EquipeSyncEvent> context)
     {
         var evt = context.Message;
+        var action = evt.GetActionAsString();
 
-        
-        if (evt.SourceModule == "GestionProjet")
-            return;
+        _logger.LogInformation("🚀 Début Consume EquipeSyncEvent pour {Guid}, Action: {Action}", evt.EquipeGuid, action);
 
-        if (evt.EquipeGuid == Guid.Empty)
-        {
-            _logger.LogWarning("EquipeSyncEvent sans GUID, ignoré.");
-            return;
-        }
+        if (evt.SourceModule == SyncSourceModule.GestionProjet) return;
+        if (evt.EquipeGuid == Guid.Empty) return;
 
-        
         var existing = await _db.GroupesEquipe
             .Include(g => g.Employes)
             .FirstOrDefaultAsync(g => g.EquipeGuid == evt.EquipeGuid);
 
-    
-        if (evt.GetActionAsString() == "Deleted")
+        if (action == "Deleted")
         {
             if (existing != null)
             {
-                foreach (var emp in existing.Employes)
-                {
-                    emp.GroupeEquipeId = null;
-                }
-
                 _db.GroupesEquipe.Remove(existing);
                 await _db.SaveChangesAsync();
-                _logger.LogInformation("🗑️ GroupeEquipe {Guid} supprimé (sync RH)", evt.EquipeGuid);
+                _logger.LogInformation("🗑️ GroupeEquipe {Guid} supprimé", evt.EquipeGuid);
             }
             return;
         }
 
-        if (existing != null && existing.UpdatedAt > evt.ChangedAt)
-        {
-            _logger.LogInformation("⏭️ Local plus récent, event ignoré (GroupeEquipe {Guid})", evt.EquipeGuid);
-            return;
-        }
+        if (existing != null && existing.UpdatedAt > evt.ChangedAt) return;
 
-       
-        int? validChefId = null;
-        if (evt.ChefProjetIdOrigine.HasValue)
-        {
-            var chefLocal = await _db.Employes.FirstOrDefaultAsync(e => e.IdOrigineRH == evt.ChefProjetIdOrigine.Value);
-            if (chefLocal != null)
-            {
-                validChefId = chefLocal.Id; 
-            }
-            else
-            {
-                _logger.LogWarning("⚠️ Chef d'équipe RH ID {ChefId} introuvable localement. L'équipe sera créée sans chef.", evt.ChefProjetIdOrigine.Value);
-            }
-        }
-
+        // --- Création ou Mise à jour du Groupe ---
         if (existing == null)
         {
             existing = new GroupeEquipe
             {
                 EquipeGuid = evt.EquipeGuid,
-                IdOrigineRH = evt.Id, 
+                IdOrigineRH = evt.Id,
                 Nom = evt.Nom,
                 TypeProjetCompatible = evt.Domaine,
-                ChefEquipeId = validChefId, 
                 UpdatedAt = evt.ChangedAt,
             };
             _db.GroupesEquipe.Add(existing);
-            _logger.LogInformation("➕ GroupeEquipe {Guid} créé (sync RH)", evt.EquipeGuid);
         }
         else
         {
             existing.Nom = evt.Nom;
             existing.TypeProjetCompatible = evt.Domaine;
-            existing.ChefEquipeId = validChefId; 
             existing.UpdatedAt = evt.ChangedAt;
-            _logger.LogInformation("✏️ GroupeEquipe {Guid} mis à jour (sync RH)", evt.EquipeGuid);
         }
 
         await _db.SaveChangesAsync();
 
-        var incomingIds = evt.Membres
-            .Select(m => m.CollaborateurIdOrigine)
-            .ToHashSet();
+        // --- Synchronisation des Membres (LOGIQUE N-N AMÉLIORÉE) ---
+        var incomingMembres = evt.Membres ?? new List<EquipeMembreSyncDto>();
+        _logger.LogInformation("📋 Équipe '{Nom}' : {Count} membre(s) reçu(s)", evt.Nom, incomingMembres.Count);
 
-        var toDetach = existing.Employes
-            .Where(e => e.IdOrigineRH == null || !incomingIds.Contains(e.IdOrigineRH.Value))
-            .ToList();
-
-        foreach (var emp in toDetach)
+        if (incomingMembres.Any())
         {
-            emp.GroupeEquipeId = null;
-        }
+            // ✅ FIX : On crée un set de Tuples (IdOrigineRH, AgentType) pour la comparaison
+            var incomingKeys = incomingMembres
+                .Select(m => (Id: m.CollaborateurIdOrigine, Type: m.CollaborateurType ?? "interne"))
+                .ToHashSet();
 
-        foreach (var membreRhId in incomingIds)
-        {
-            var alreadyIn = existing.Employes.Any(e => e.IdOrigineRH == membreRhId);
-            if (!alreadyIn)
+            // 1. Retrait des membres qui ne sont plus dans la liste
+            var toDetach = existing.Employes
+                .Where(e => e.IdOrigineRH.HasValue && 
+                       !incomingKeys.Contains((e.IdOrigineRH.Value, e.AgentType ?? "interne")))
+                .ToList();
+
+            foreach (var emp in toDetach)
             {
-                var employe = await _db.Employes.FirstOrDefaultAsync(e => e.IdOrigineRH == membreRhId);
-                if (employe != null)
+                existing.Employes.Remove(emp);
+                _logger.LogInformation("➖ Retrait {Nom} (RH ID {Rh}, Type {Type})", emp.NomComplet, emp.IdOrigineRH, emp.AgentType);
+            }
+
+            // 2. Trouver les membres manquants dans le groupe actuel
+            var currentKeys = existing.Employes
+                .Where(e => e.IdOrigineRH.HasValue)
+                .Select(e => (Id: e.IdOrigineRH.Value, Type: e.AgentType ?? "interne"))
+                .ToHashSet();
+
+            var missingMembres = incomingMembres
+                .Where(m => !currentKeys.Contains((m.CollaborateurIdOrigine, m.CollaborateurType ?? "interne")))
+                .ToList();
+
+            if (missingMembres.Any())
+            {
+                _logger.LogInformation("🔍 {Count} membre(s) manquant(s) localement dans le groupe.", missingMembres.Count);
+
+                // Récupérer tous les IDs RH manquants pour une recherche en base (batch)
+                var missingRhIds = missingMembres.Select(m => m.CollaborateurIdOrigine).Distinct().ToList();
+                
+                var potentialMatches = await _db.Employes
+                    .Where(e => e.IdOrigineRH.HasValue && missingRhIds.Contains(e.IdOrigineRH.Value))
+                    .ToListAsync();
+
+               foreach (var missing in missingMembres)
+{
+    var expectedType = missing.CollaborateurType ?? "interne";
+
+    // ✅ FIX : On cherche par IdOrigineRH, en acceptant soit le bon AgentType, soit NULL (joker)
+    var match = potentialMatches.FirstOrDefault(e => 
+        e.IdOrigineRH == missing.CollaborateurIdOrigine && 
+        (e.AgentType == expectedType || string.IsNullOrEmpty(e.AgentType)));
+
+    if (match != null)
+    {
+        existing.Employes.Add(match);
+        
+        // ✅ BONUS : Si l'employé existait mais avait AgentType=NULL, on corrige sa vraie nature
+        if (string.IsNullOrEmpty(match.AgentType) && !string.IsNullOrEmpty(expectedType))
+        {
+            match.AgentType = expectedType;
+            _logger.LogInformation("🔄 Mise à jour AgentType de NULL vers '{Type}' pour RH ID {Id}", expectedType, match.IdOrigineRH);
+        }
+        
+        _logger.LogInformation("✅ Ajout de l'employé existant {Nom} (RH ID {Rh}, Type {Type})", match.NomComplet, match.IdOrigineRH, expectedType);
+    }
+    else
+    {
+        // Création d'un Stub typé (Interne ou Externe) si absent
+        _logger.LogWarning("⚠️ Membre RH ID {Rh} (Type: {Type}) introuvable localement. Création d'un Stub.", missing.CollaborateurIdOrigine, expectedType);
+        
+        var stub = new Employe
+        {
+            IdOrigineRH = missing.CollaborateurIdOrigine,
+            AgentType = expectedType, 
+            NomComplet = $"⏳ En attente ({expectedType}: {missing.CollaborateurIdOrigine})",
+            Email = $"stub.{expectedType}.{missing.CollaborateurIdOrigine}@temp.local",
+            Role = "Non défini",
+            CoutHoraire = 0
+        };
+        
+        existing.Employes.Add(stub);
+    }
+}
+                try
                 {
-                    employe.GroupeEquipeId = existing.Id; 
+                    await _db.SaveChangesAsync();
+                    _logger.LogInformation("💾 Sauvegarde des membres de l'équipe réussie.");
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogWarning("⚠️ Employé RH ID {EmployeId} introuvable pour le groupe {Guid}", 
-                        membreRhId, evt.EquipeGuid);
+                    _logger.LogError(ex, "❌ ERREUR CRITIQUE lors de la sauvegarde des membres/Stubs.");
+                    throw;
                 }
             }
         }
+        else
+        {
+            _logger.LogWarning("⚠️ Événement sans membres pour l'équipe {Nom}.", evt.Nom);
+        }
 
-        await _db.SaveChangesAsync();
+        // --- Résolution du Chef d'équipe ---
+        if (evt.ChefProjetIdOrigine.HasValue)
+        {
+            var chefId = await _db.Employes
+                .Where(e => e.IdOrigineRH == evt.ChefProjetIdOrigine.Value)
+                .Select(e => (int?)e.Id)
+                .FirstOrDefaultAsync();
+
+            if (chefId.HasValue && existing.ChefEquipeId != chefId.Value)
+            {
+                existing.ChefEquipeId = chefId.Value;
+                await _db.SaveChangesAsync();
+                _logger.LogInformation("👑 Chef d'équipe défini: Employé ID {Id}", chefId.Value);
+            }
+        }
     }
 }

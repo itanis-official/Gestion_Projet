@@ -29,6 +29,6 @@
     <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
   </ItemGroup>
 <ItemGroup>
-  <ProjectReference Include="..\ITANIS.SharedEvents\ITANIS.SharedEvents.csproj" />
+  <ProjectReference Include="..\Contrat-d-evenement\ITANIS.SharedEvents.csproj" />
 </ItemGroup>
 </Project>

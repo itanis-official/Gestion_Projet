@@ -163,6 +163,51 @@ public async Task<IActionResult> RejeterSousTache(int id, [FromBody] RejetSousTa
 
     return Ok("Rejetée");
 }
+[HttpGet("utilisateur/{userId}")]
+[Authorize(Roles = "Admin")]
+public async Task<IActionResult> GetByUser(int userId, [FromQuery] int? projetId = null)
+{
+
+    IQueryable<SousTache> query = _context.SousTaches;
+
+    query = query.Include(st => st.Tache)
+        .ThenInclude(t => t.Phase)
+        .ThenInclude(p => p.Projet);
+
+   
+    query = query.Include(st => st.Tache.Responsable);
+
+    query = query.Where(st => st.Tache != null && st.Tache.ResponsableId == userId);
+
+    if (projetId.HasValue)
+    {
+        query = query.Where(st => st.Tache.Phase != null && st.Tache.Phase.ProjetId == projetId.Value);
+    }
+
+    var data = await query.Select(st => new
+    {
+        st.Id,
+        st.Titre,
+        Statut = st.Statut.ToString(),
+        st.DureeEstimeeHeures,
+       
+        DateDebutPrevue = st.Tache.DateDebutPrevue,
+        DateFinPrevue = st.Tache.DateFinPrevue,
+       
+        TacheId = st.Tache.Id,
+        TacheTitre = st.Tache.Titre,
+        ProjetId = st.Tache.Phase.Projet.Id,
+        ProjetNom = st.Tache.Phase.Projet.Nom,
+        
+        // Si Responsable est null, cela renverra null sans crasher
+        EmployeNom = st.Tache.Responsable != null ? st.Tache.Responsable.NomComplet : null,
+        
+        Priorite = "medium",
+        RaisonRejet = (string)null,
+    }).ToListAsync();
+
+    return Ok(data);
+}
    [HttpPatch("{id}/statut")]
 [Authorize]
 public async Task<IActionResult> UpdateStatut(int id, [FromBody] UpdateStatutDto dto)

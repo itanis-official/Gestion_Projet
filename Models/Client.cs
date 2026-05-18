@@ -6,6 +6,7 @@ namespace GestionProjet.Models;
 public class Client
 {
     [Key]
+    [DatabaseGenerated(DatabaseGeneratedOption.None)]
     public int Id { get; set; }
     
     [Required]

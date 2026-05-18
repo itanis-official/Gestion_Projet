@@ -157,15 +157,38 @@ public async Task NotifierSousTacheATester(int sousTacheId, int testeurId, strin
             Console.WriteLine($"Erreur lors de l'envoi de la notification: {ex.Message}");
         }
     }
-    public async Task NotifierProjetsProchesFin()
+       public async Task NotifierProjetsProchesFin()
     {
-        var now = DateTime.Now.Date;
+        var now = DateTime.Now;
+
+        // 1. Calcul des bornes (Optimisé)
+        var debut = now.Date;
+        var fin = now.Date.AddDays(11);
+
+        // 2. Récupération des projets (Optimisé)
         var projets = await _context.Projets
             .Include(p => p.GroupeEquipe)
                 .ThenInclude(g => g.Employes)
-            .Where(p => p.DateFinPrevue.Date >= now &&
-                        p.DateFinPrevue.Date <= now.AddDays(10))
+            .Where(p => p.DateFinPrevue >= debut &&
+                        p.DateFinPrevue < fin)
             .ToListAsync();
+
+        // 3. Récupération des notifications existantes
+        // ✅ CORRECTION ICI : On utilise un "Anonymous Type" dans le Select pour SQL
+        var notificationsData = await _context.Notifications
+            .Where(n => n.Type == "ProjetFinProche" && n.DateEnvoi >= debut)
+            .Select(n => new { n.EmployeId, n.ProjetId }) 
+            .ToListAsync();
+
+        // 4. Conversion en HashSet de tuples (en mémoire, pas en SQL)
+        // On filtre les nulls et on crée les tuples ici
+        var clesNotifs = new HashSet<(int EmpId, int ProjId)>(
+            notificationsData
+                .Where(x => x.ProjetId.HasValue) 
+                .Select(x => (x.EmployeId, x.ProjetId.Value)) 
+        );
+
+        var nouvellesNotifications = new List<Notification>();
 
         foreach (var projet in projets)
         {
@@ -175,15 +198,10 @@ public async Task NotifierSousTacheATester(int sousTacheId, int testeurId, strin
             {
                 var message = $"⚠️ Le projet '{projet.Nom}' se termine le {projet.DateFinPrevue:dd/MM/yyyy}";
                 
-                var notifExistante = await _context.Notifications
-                    .FirstOrDefaultAsync(n => n.EmployeId == employe.Id &&
-                                              n.ProjetId == projet.Id &&
-                                              n.Type == "ProjetFinProche" &&
-                                              n.DateEnvoi.Date == DateTime.Now.Date);
-
-                if (notifExistante == null)
+                // Vérification en mémoire (Maintenant que les types correspondent)
+                if (!clesNotifs.Contains((employe.Id, projet.Id)))
                 {
-                    var notification = new Notification
+                    nouvellesNotifications.Add(new Notification
                     {
                         EmployeId = employe.Id,
                         ProjetId = projet.Id,
@@ -191,16 +209,17 @@ public async Task NotifierSousTacheATester(int sousTacheId, int testeurId, strin
                         Type = "ProjetFinProche",
                         DateEnvoi = DateTime.Now,
                         Lu = false
-                    };
-                    
-                    _context.Notifications.Add(notification);
+                    });
                 }
             }
         }
 
-        await _context.SaveChangesAsync();
+        if (nouvellesNotifications.Any())
+        {
+            await _context.Notifications.AddRangeAsync(nouvellesNotifications);
+            await _context.SaveChangesAsync();
+        }
     }
-
     public async Task<List<Notification>> GetByEmploye(int employeId)
     {
         return await _context.Notifications
