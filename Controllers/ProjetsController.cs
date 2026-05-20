@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 using GestionProjet.Data;
 using GestionProjet.Models;
 using GestionProjet.Enums;
@@ -31,7 +32,48 @@ namespace GestionProjet.Controllers
             _logger = logger;
         }
 
+        // ──────────────────────────────────────────────────────
+        // ✅ MÉTHODE CENTRALE : Résoudre l'EmployeId depuis le token Authentik
+        // ──────────────────────────────────────────────────────
+              private async Task<int?> GetAuthenticatedEmployeId()
+        {
+            // 1. Essayer l'ancien claim local
+            var employeIdClaim = User.FindFirst("EmployeId")?.Value;
+            if (!string.IsNullOrEmpty(employeIdClaim) && int.TryParse(employeIdClaim, out var localId))
+                return localId;
+
+            // 2. Chercher l'email sous toutes ses formes possibles dans le token Authentik
+            var email = User.FindFirst("email")?.Value                     // Standard
+                     ?? User.FindFirst(ClaimTypes.Email)?.Value            // Microsoft standard
+                     ?? User.FindFirst("preferred_username")?.Value        // Souvent l'email ou le nom d'user
+                     ?? User.FindFirst("upn")?.Value;                      // User Principal Name
+
+            if (string.IsNullOrEmpty(email))
+            {
+                // ✅ Si toujours rien, on log ce qu'on a reçu pour débugger
+                var allClaims = User.Claims.Select(c => $"{c.Type}: {c.Value}");
+                _logger.LogWarning("❌ Aucun email trouvé. Claims reçus : {Claims}", string.Join(", ", allClaims));
+                return null;
+            }
+
+            // 3. Chercher l'employé local par email
+            var employe = await _context.Employes
+                .FirstOrDefaultAsync(e => e.Email == email);
+
+            if (employe == null)
+            {
+                _logger.LogWarning("❌ Aucun employé trouvé en base pour l'email: {Email}", email);
+                return null;
+            }
+
+            return employe.Id;
+        }
+        // ──────────────────────────────────────────────────────
+        // ENDPOINTS
+        // ──────────────────────────────────────────────────────
+
         [HttpPost("upload-cdc/{projectId}")]
+        [Authorize]
         public async Task<IActionResult> UploadCdc(int projectId, IFormFile file)
         {
             var projet = await _context.Projets.FindAsync(projectId);
@@ -49,7 +91,6 @@ namespace GestionProjet.Controllers
                 var uploadsFolder = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "cdc");
                 if (!Directory.Exists(uploadsFolder))
                     Directory.CreateDirectory(uploadsFolder);
-
 
                 var safeFileName = $"{projectId}_{Guid.NewGuid()}{extension}";
                 var filePath = Path.Combine(uploadsFolder, safeFileName);
@@ -71,15 +112,18 @@ namespace GestionProjet.Controllers
         }
 
         [HttpGet("mes-projets-chef")]
-        [Authorize]
+        [Authorize(AuthenticationSchemes = "Bearer")] 
         public async Task<ActionResult> GetMesProjetsChef()
         {
-            var employeId = User.FindFirst("EmployeId")?.Value;
+            // ✅ Utiliser la nouvelle méthode au lieu du claim direct
+            var employeId = await GetAuthenticatedEmployeId();
 
-            if (string.IsNullOrEmpty(employeId))
-                return Unauthorized();
+            if (employeId == null)
+                return Unauthorized(new { message = "Employé non identifié. Vérifiez que votre email Authentik correspond à un employé en base." });
 
-            int empId = int.Parse(employeId);
+            int empId = employeId.Value;
+
+            _logger.LogInformation("📋 GetMesProjetsChef — EmployeId: {EmpId}", empId);
 
             var projets = await _context.Projets
                 .Include(p => p.Client)
@@ -107,12 +151,15 @@ namespace GestionProjet.Controllers
         [Authorize]
         public async Task<ActionResult> GetMesProjetsMembre()
         {
-            var employeId = User.FindFirst("EmployeId")?.Value;
+            // ✅ Utiliser la nouvelle méthode au lieu du claim direct
+            var employeId = await GetAuthenticatedEmployeId();
 
-            if (string.IsNullOrEmpty(employeId))
-                return Unauthorized();
+            if (employeId == null)
+                return Unauthorized(new { message = "Employé non identifié. Vérifiez que votre email Authentik correspond à un employé en base." });
 
-            int empId = int.Parse(employeId);
+            int empId = employeId.Value;
+
+            _logger.LogInformation("📋 GetMesProjetsMembre — EmployeId: {EmpId}", empId);
 
             var projets = await _context.Projets
                 .Include(p => p.Client)
@@ -137,6 +184,7 @@ namespace GestionProjet.Controllers
         }
 
         [HttpGet("{id}")]
+        [Authorize]
         public async Task<IActionResult> GetProjetById(int id)
         {
             var projet = await _context.Projets
@@ -152,7 +200,6 @@ namespace GestionProjet.Controllers
                 .Include(p => p.Phases)
                     .ThenInclude(ph => ph.Taches)
                         .ThenInclude(t => t.SousTaches)
-
                 .Include(p => p.Phases)
                     .ThenInclude(ph => ph.Taches)
                         .ThenInclude(t => t.TacheCompetences)
@@ -217,29 +264,63 @@ namespace GestionProjet.Controllers
             return calculatedStatus;
         }
 
-[HttpGet]
-[Authorize(Roles = "Admin")] 
-public async Task<ActionResult> GetAllProjets()
-{
-    var projets = await _context.Projets
-        .Include(p => p.Client)
-        .Include(p => p.GroupeEquipe)
-            .ThenInclude(g => g.Employes)
-        .Include(p => p.Phases)
-            .ThenInclude(ph => ph.Taches)
-                .ThenInclude(t => t.SousTaches)
-        .Include(p => p.Phases)
-            .ThenInclude(ph => ph.Taches)
-                .ThenInclude(t => t.Responsable)
-        .Include(p => p.Phases)
-            .ThenInclude(ph => ph.Taches)
-                .ThenInclude(t => t.Testeur)
-        .ToListAsync();
+        [HttpGet]
+        [Authorize]
+        public async Task<ActionResult> GetAllProjets()
+        {
+            // ✅ Vérifier que l'utilisateur est admin ou CEO via les groupes Authentik
+            var groups = User.FindAll("groups").Select(c => c.Value).ToList();
+            var isAdmin = groups.Contains("ceo");
 
-    var result = projets.Select(p => MapToProjetDetailDto(p));
+            if (!isAdmin)
+            {
+                _logger.LogWarning("❌ Accès refusé à GetAllProjets. Groupes: {Groups}",
+                    string.Join(", ", groups));
+                // Au lieu de bloquer, on retourne les projets de l'utilisateur
+                var empId = await GetAuthenticatedEmployeId();
+                if (empId == null)
+                    return Unauthorized(new { message = "Employé non identifié" });
 
-    return Ok(result);
-}
+                var userProjets = await _context.Projets
+                    .Include(p => p.Client)
+                    .Include(p => p.GroupeEquipe)
+                        .ThenInclude(g => g.Employes)
+                    .Include(p => p.Phases)
+                        .ThenInclude(ph => ph.Taches)
+                            .ThenInclude(t => t.SousTaches)
+                    .Include(p => p.Phases)
+                        .ThenInclude(ph => ph.Taches)
+                            .ThenInclude(t => t.Responsable)
+                    .Include(p => p.Phases)
+                        .ThenInclude(ph => ph.Taches)
+                            .ThenInclude(t => t.Testeur)
+                    .Where(p => p.GroupeEquipe != null &&
+                                p.GroupeEquipe.Employes.Any(e => e.Id == empId.Value))
+                    .ToListAsync();
+
+                return Ok(userProjets.Select(p => MapToProjetDetailDto(p)));
+            }
+
+            var projets = await _context.Projets
+                .Include(p => p.Client)
+                .Include(p => p.GroupeEquipe)
+                    .ThenInclude(g => g.Employes)
+                .Include(p => p.Phases)
+                    .ThenInclude(ph => ph.Taches)
+                        .ThenInclude(t => t.SousTaches)
+                .Include(p => p.Phases)
+                    .ThenInclude(ph => ph.Taches)
+                        .ThenInclude(t => t.Responsable)
+                .Include(p => p.Phases)
+                    .ThenInclude(ph => ph.Taches)
+                        .ThenInclude(t => t.Testeur)
+                .ToListAsync();
+
+            var result = projets.Select(p => MapToProjetDetailDto(p));
+
+            return Ok(result);
+        }
+
         private ProjetDetailDto MapToProjetDetailDto(Projet projet)
         {
             var finalStatus = GetFinalProjectStatus(projet);
@@ -318,6 +399,7 @@ public async Task<ActionResult> GetAllProjets()
         }
 
         [HttpGet("{id}/cdc/exists")]
+        [Authorize]
         public async Task<IActionResult> CheckCdcExists(int id)
         {
             var projet = await _context.Projets.FindAsync(id);
@@ -327,6 +409,7 @@ public async Task<ActionResult> GetAllProjets()
         }
 
         [HttpGet("{id}/cdc/download")]
+        [Authorize]
         public async Task<IActionResult> DownloadCdc(int id)
         {
             var projet = await _context.Projets.FindAsync(id);
@@ -349,6 +432,7 @@ public async Task<ActionResult> GetAllProjets()
         }
 
         [HttpDelete("{id}/cdc")]
+        [Authorize]
         public async Task<IActionResult> DeleteCdc(int id)
         {
             var projet = await _context.Projets.FindAsync(id);
@@ -387,13 +471,6 @@ public async Task<ActionResult> GetAllProjets()
                         .ThenInclude(t => t.Phase)
                 .Where(a => a.SousTache.Tache.Phase.ProjetId == id)
                 .ToListAsync();
-
-            // ✅ Récupérer toutes les sous-tâches du projet pour supprimer leurs tests
-            var allSousTacheIdsInProject = projet.Phases
-                .SelectMany(p => p.Taches)
-                .SelectMany(t => t.SousTaches)
-                .Select(st => st.Id)
-                .ToList();
 
             projet.Nom = dto.Nom;
             projet.Description = dto.Description;
@@ -584,19 +661,17 @@ public async Task<ActionResult> GetAllProjets()
                                 }
                             }
 
-                            // ✅ Supprimer les sous-tâches qui ne sont plus dans le DTO
+                            // Supprimer les sous-tâches qui ne sont plus dans le DTO
                             var stToRemove = existingTache.SousTaches
                                 .Where(st => !tacheDto.SousTaches.Any(stdto => stdto.Titre == st.Titre))
                                 .ToList();
 
                             foreach (var st in stToRemove)
                             {
-                                // ✅ Supprimer les tests liés à cette sous-tâche
                                 var testsForSt = await _context.Tests.Where(t => t.SousTacheId == st.Id).ToListAsync();
                                 if (testsForSt.Any())
                                 {
                                     _context.Tests.RemoveRange(testsForSt);
-                                    _logger.LogInformation("✅ {Count} tests supprimés pour la sous-tâche {SousTacheId}", testsForSt.Count, st.Id);
                                 }
 
                                 var affectationsToRemove = existingAffectations.Where(a => a.SousTacheId == st.Id).ToList();
@@ -613,20 +688,18 @@ public async Task<ActionResult> GetAllProjets()
                         }
                     }
 
-                    // ✅ Supprimer les tâches qui ne sont plus dans le DTO
+                    // Supprimer les tâches qui ne sont plus dans le DTO
                     var tachesToRemove = existingPhase.Taches
                         .Where(t => !phaseDto.Taches.Any(tdto => tdto.Titre == t.Titre))
                         .ToList();
 
                     foreach (var tache in tachesToRemove)
                     {
-                        // Supprimer les tests de toutes les sous-tâches de cette tâche
                         var stIdsInTache = tache.SousTaches.Select(st => st.Id).ToList();
                         var testsForTache = await _context.Tests.Where(t => stIdsInTache.Contains(t.SousTacheId)).ToListAsync();
                         if (testsForTache.Any())
                         {
                             _context.Tests.RemoveRange(testsForTache);
-                            _logger.LogInformation("✅ {Count} tests supprimés pour la tâche {TacheId}", testsForTache.Count, tache.Id);
                         }
 
                         var affectationsToRemove = existingAffectations
@@ -639,7 +712,7 @@ public async Task<ActionResult> GetAllProjets()
                 }
             }
 
-            // ✅ Supprimer les phases qui ne sont plus dans le DTO
+            // Supprimer les phases qui ne sont plus dans le DTO
             var phasesToRemove = projet.Phases
                 .Where(p => !dto.Phases.Any(pdto => pdto.TypePhase == p.TypePhase.ToString()))
                 .ToList();
@@ -653,7 +726,6 @@ public async Task<ActionResult> GetAllProjets()
                     if (testsForPhase.Any())
                     {
                         _context.Tests.RemoveRange(testsForPhase);
-                        _logger.LogInformation("✅ {Count} tests supprimés pour la phase {PhaseId}", testsForPhase.Count, phase.Id);
                     }
 
                     var affectationsToRemove = existingAffectations
@@ -721,27 +793,26 @@ public async Task<ActionResult> GetAllProjets()
             await _context.SaveChangesAsync();
         }
 
-               [HttpPost("{id}/membres")]
+        [HttpPost("{id}/membres")]
+        [Authorize]
         public async Task<IActionResult> AjouterMembres(int id, [FromBody] List<int> employeIds)
         {
-            // 1. Récupérer le PROJET via l'ID de l'URL
             var projet = await _context.Projets
                 .Include(p => p.GroupeEquipe)
-                    .ThenInclude(g => g.Employes) // Charge les membres actuels pour éviter les doublons
+                    .ThenInclude(g => g.Employes)
                 .FirstOrDefaultAsync(p => p.Id == id);
 
             if (projet == null) return NotFound("Projet introuvable");
             if (projet.GroupeEquipe == null) return BadRequest("Ce projet n'a pas d'équipe assignée");
 
             var equipe = projet.GroupeEquipe;
-            
+
             var employes = await _context.Employes
                 .Where(e => employeIds.Contains(e.Id))
                 .ToListAsync();
 
             foreach (var emp in employes)
             {
-                // ✅ LOGIQUE N-N : Ajouter l'employé à la collection de l'équipe
                 if (!equipe.Employes.Any(e => e.Id == emp.Id))
                 {
                     equipe.Employes.Add(emp);
@@ -754,26 +825,24 @@ public async Task<ActionResult> GetAllProjets()
         }
 
         [HttpDelete("{id}/membres/{employeId}")]
+        [Authorize]
         public async Task<IActionResult> RemoveMembre(int id, int employeId)
         {
-            // 1. Récupérer le PROJET via l'ID de l'URL
             var projet = await _context.Projets
                 .Include(p => p.GroupeEquipe)
-                    .ThenInclude(g => g.Employes) // Charge la collection pour pouvoir retirer
+                    .ThenInclude(g => g.Employes)
                 .FirstOrDefaultAsync(p => p.Id == id);
 
             if (projet == null) return NotFound("Projet introuvable");
             if (projet.GroupeEquipe == null) return BadRequest("Ce projet n'a pas d'équipe assignée");
 
             var equipe = projet.GroupeEquipe;
-            
-            // Chercher l'employé DANS la collection de l'équipe de ce projet
+
             var employe = equipe.Employes.FirstOrDefault(e => e.Id == employeId);
 
-            if (employe == null) 
+            if (employe == null)
                 return BadRequest("Cet employé ne fait pas partie de l'équipe de ce projet");
 
-            // ✅ LOGIQUE N-N : Retirer l'employé de la collection
             equipe.Employes.Remove(employe);
 
             await _context.SaveChangesAsync();

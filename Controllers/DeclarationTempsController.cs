@@ -6,6 +6,7 @@ using GestionProjet.Models;
 using GestionProjet.Services;
 using ITANIS.SharedEvents;
 using MassTransit; 
+using System.Security.Claims; 
 namespace GestionProjet.Controllers
 {
     [ApiController]
@@ -23,42 +24,53 @@ namespace GestionProjet.Controllers
             _publishEndpoint = publishEndpoint;
         }
 
- [HttpPost]
+[HttpPost]
 [Authorize]
 public async Task<IActionResult> DeclarerHeures([FromBody] CreateDeclarationTempsDto dto)
 {
     try
     {
-        var employeIdClaim = User.FindFirst("EmployeId")?.Value;
-        if (string.IsNullOrEmpty(employeIdClaim)) return Unauthorized();
+        // ✅ Récupérer l'email depuis le token Authentik
+        var email = User.FindFirst("email")?.Value 
+                 ?? User.FindFirst(ClaimTypes.Email)?.Value;
+        
+        if (string.IsNullOrEmpty(email))
+        {
+            return Unauthorized("Email non trouvé dans le token");
+        }
 
-        int empId = int.Parse(employeIdClaim);
+        // ✅ Trouver l'employé par email
+        var employe = await _context.Employes
+            .FirstOrDefaultAsync(e => e.Email == email);
+        
+        if (employe == null)
+        {
+            return Unauthorized($"Employé avec email {email} non trouvé");
+        }
 
-        // 1. Charger l'employé pour récupérer IdOrigineRH et AgentType
-        var employe = await _context.Employes.FindAsync(empId);
-        if (employe == null) return Unauthorized("Employé introuvable");
-
+        // Vérifier l'ID RH
         if (!employe.IdOrigineRH.HasValue)
         {
             return BadRequest("Cet employé n'a pas d'identifiant RH valide. Impossible de synchroniser.");
         }
 
-        // 2. Charger les données nécessaires
+        // Charger les données nécessaires
         var sousTache = await _context.SousTaches
             .Include(st => st.Tache)
                 .ThenInclude(t => t.Phase)
-                    .ThenInclude(p => p.Projet)  // ← Il manquait ce ThenInclude !
+                    .ThenInclude(p => p.Projet)
             .FirstOrDefaultAsync(st => st.Id == dto.SousTacheId);
 
-        if (sousTache == null) return NotFound();
+        if (sousTache == null) 
+            return NotFound($"Sous-tâche {dto.SousTacheId} non trouvée");
 
         int projetId = sousTache.Tache.Phase.ProjetId;
 
-        // 3. Créer et sauvegarder
+        // Créer et sauvegarder
         var declaration = new DeclarationTemps
         {
             SousTacheId = dto.SousTacheId,
-            EmployeId = empId,
+            EmployeId = employe.Id,
             Date = dto.Date,
             DureeHeures = dto.DureeHeures,
             Type = dto.Type
@@ -67,35 +79,30 @@ public async Task<IActionResult> DeclarerHeures([FromBody] CreateDeclarationTemp
         _context.DeclarationsTemps.Add(declaration);
         await _context.SaveChangesAsync();
 
-        // 4. Mettre à jour le projet
+        // Mettre à jour le projet
         await _projetService.MettreAJourProjet(projetId);
 
-        // 5. ✅ Publier l'événement avec les IDs RH (compris par le destinataire)
+        // ✅ Publier l'événement
         await _publishEndpoint.Publish(new DeclarationTempsSyncEvent
         {
             DeclarationId = declaration.Id,
-            
-            // ✅ ID RH (pas l'ID local !)
             EmployeIdRh = employe.IdOrigineRH.Value,
             EmployeNomComplet = employe.NomComplet,
-            EmployeAgentType = employe.AgentType,
-            
+            EmployeAgentType = employe.AgentType ?? "interne",
             SousTacheId = sousTache.Id,
             SousTacheTitre = sousTache.Titre,
-            
             ProjetId = projetId,
             ProjetNom = sousTache.Tache.Phase.Projet.Nom,
-            
             Date = dto.Date,
             DureeHeures = dto.DureeHeures,
             Type = dto.Type
         });
 
-        return Ok(new { message = "Heures déclarées, projet mis à jour et envoyé au TimeSheet." });
+        return Ok(new { message = "Heures déclarées et synchronisées avec TimeSheet" });
     }
     catch (Exception ex)
     {
-        return StatusCode(500, ex.Message);
+        return StatusCode(500, new { error = ex.Message, stack = ex.StackTrace });
     }
 }
     }

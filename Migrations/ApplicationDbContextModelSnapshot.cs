@@ -205,6 +205,10 @@ namespace GestionProjet.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Email");
+
+                    b.HasIndex("IdOrigineRH");
+
                     b.ToTable("Employes");
                 });
 

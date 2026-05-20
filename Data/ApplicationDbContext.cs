@@ -33,6 +33,13 @@ public class ApplicationDbContext : IdentityDbContext<Utilisateur>
     {
         base.OnModelCreating(modelBuilder);
 
+        // ✅ AJOUT : Index pour optimiser les recherches du AgentSyncConsumer
+        modelBuilder.Entity<Employe>()
+            .HasIndex(e => e.IdOrigineRH);
+
+        modelBuilder.Entity<Employe>()
+            .HasIndex(e => e.Email);
+
         // --- COMPÉTENCES ---
         modelBuilder.Entity<EmployeCompetence>()
             .HasOne(ec => ec.Employe)
@@ -149,11 +156,9 @@ public class ApplicationDbContext : IdentityDbContext<Utilisateur>
             .HasForeignKey(n => n.EmployeId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // --- GROUPE EQUIPE (CHANGEMENT CRITIQUE ICI) ---
-        // ✅ NOUVELLE CONFIGURATION N-N (Many-to-Many)
-        // Cela permet à un employé d'être dans plusieurs groupes et un groupe d'avoir plusieurs employés
+        // --- GROUPE EQUIPE (N-N) ---
         modelBuilder.Entity<Employe>()
-            .HasMany(e => e.Groupes) // Assurez-vous d'avoir ajouté 'Groupes' dans Employe.cs
+            .HasMany(e => e.Groupes)
             .WithMany(g => g.Employes)
             .UsingEntity<Dictionary<string, object>>(
                 "EmployeGroupeEquipe",
@@ -162,12 +167,6 @@ public class ApplicationDbContext : IdentityDbContext<Utilisateur>
                 j => j.ToTable("EmployeGroupeEquipe")
             );
 
-        // Ancien code à SUPPRIMER (One-to-Many) :
-        // modelBuilder.Entity<Employe>()
-        //    .HasOne(e => e.GroupeEquipe) ...
-        //    .HasForeignKey(e => e.GroupeEquipeId) ...
-
-        // Gestion du Chef d'équipe (Un groupe a un seul chef)
         modelBuilder.Entity<GroupeEquipe>()
             .HasOne(g => g.ChefEquipe)
             .WithMany()

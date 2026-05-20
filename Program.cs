@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
 using GestionProjet.Data;
 using GestionProjet.Models;
 using GestionProjet.Services;
@@ -10,12 +9,10 @@ using GestionProjet.Services.Interfaces;
 using MassTransit;
 using GestionProjet.Consumers;
 using dotenv.net;
-
 using Microsoft.Extensions.FileProviders;
 using System.IO;
 
 DotEnv.Load(options: new DotEnvOptions(envFilePaths: new[] { ".env" }));
-
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -39,7 +36,7 @@ builder.Services.AddSwaggerGen(c =>
         Scheme = "Bearer",
         BearerFormat = "JWT",
         In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Description = "Entrez votre token JWT"
+        Description = "Entrez votre token JWT Authentik"
     });
     
     c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
@@ -80,6 +77,8 @@ if (!string.IsNullOrEmpty(connectionString) && !string.IsNullOrEmpty(password))
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(connectionString));
 
+// ✅ Identity est gardé pour la gestion locale des utilisateurs (lier un Employe à un Utilisateur)
+// mais il ne sera plus utilisé pour générer des tokens de connexion.
 builder.Services.AddIdentity<Utilisateur, IdentityRole>(options =>
 {
     options.Password.RequireDigit = true;
@@ -97,13 +96,16 @@ builder.Services.AddIdentity<Utilisateur, IdentityRole>(options =>
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
 
-var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-builder.Services.Configure<JwtSettings>(jwtSettings);
+// ❌ SUPPRIMÉ : Ancienne config locale
+// var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+// builder.Services.Configure<JwtSettings>(jwtSettings);
+// var key = Encoding.UTF8.GetBytes(...);
+// builder.Services.AddScoped<IJwtService, JwtService>();
 
 var groqApiKey = Environment.GetEnvironmentVariable("GROQ_API_KEY") ?? builder.Configuration["Groq:ApiKey"];
 builder.Configuration["Groq:ApiKey"] = groqApiKey;
 
-var key = Encoding.UTF8.GetBytes(jwtSettings["Secret"] ?? throw new InvalidOperationException("JWT Secret non configuré"));
+// ✅ NOUVELLE AUTHENTIFICATION AVEC AUTHENTIK
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -111,18 +113,17 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
+    options.Authority = "http://authentik.itanis.tn/application/o/erp-application/";
+    options.Audience = "BGnXFXMepfj4wh0AVli40YPWPjTFs9SgBxf1Udxk";
     options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
+    
     options.TokenValidationParameters = new TokenValidationParameters
     {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new SymmetricSecurityKey(key),
         ValidateIssuer = true,
-        ValidIssuer = jwtSettings["Issuer"],
         ValidateAudience = true,
-        ValidAudience = jwtSettings["Audience"],
         ValidateLifetime = true,
-        ClockSkew = TimeSpan.Zero
+        ValidateIssuerSigningKey = true,
+        RoleClaimType = "groups"
     };
     
     options.Events = new JwtBearerEvents
@@ -131,18 +132,42 @@ builder.Services.AddAuthentication(options =>
         {
             var accessToken = context.Request.Query["access_token"];
             var path = context.HttpContext.Request.Path;
-            
             if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
             {
                 context.Token = accessToken;
             }
-            
+            return Task.CompletedTask;
+        },
+        
+        // ✅ LOG DÉTAILLÉ DE L'ERREUR
+        OnAuthenticationFailed = context =>
+        {
+            Console.WriteLine("===============================================");
+            Console.WriteLine("❌ JWT AUTHENTICATION FAILED");
+            Console.WriteLine($"Exception Type: {context.Exception.GetType().Name}");
+            Console.WriteLine($"Message: {context.Exception.Message}");
+            if (context.Exception.InnerException != null)
+            {
+                Console.WriteLine($"Inner Exception: {context.Exception.InnerException.Message}");
+            }
+            Console.WriteLine("===============================================");
+            return Task.CompletedTask;
+        },
+        
+        
+        // ✅ LOG SI LE TOKEN EST VALIDÉ AVEC SUCCÈS
+        OnTokenValidated = context =>
+        {
+            Console.WriteLine("✅ JWT TOKEN VALIDATED SUCCESSFULLY");
+            var claims = context.Principal.Claims.Select(c => $"{c.Type}: {c.Value}");
+            Console.WriteLine($"Claims:\n{string.Join("\n", claims)}");
             return Task.CompletedTask;
         }
     };
 });
 
-builder.Services.AddScoped<IJwtService, JwtService>();
+builder.Services.AddAuthorization();
+
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddHostedService<NotificationBackgroundService>();
 builder.Services.AddScoped<ProjetService>();
@@ -150,6 +175,7 @@ builder.Services.AddScoped<LoadBalancingService>();
 builder.Services.AddHttpClient<GroqService>();
 builder.Services.AddScoped<ProjetSyncService>();
 builder.Services.AddScoped<PlanningValidationService>();
+
 builder.Services.AddMassTransit(x =>
 {
     x.AddConsumer<OpportuniteConvertieConsumer>();
@@ -158,6 +184,7 @@ builder.Services.AddMassTransit(x =>
     x.AddConsumer<AgentSyncConsumer>();     
     x.AddConsumer<TypeProjetSyncEventConsumer>();
     x.AddConsumer<TacheResponsableReassignedConsumer>();
+    
     x.UsingRabbitMq((context, cfg) =>
     {
         cfg.Host("51.254.133.231", 31672, "/", h =>
@@ -170,11 +197,33 @@ builder.Services.AddMassTransit(x =>
         {
             e.ConfigureConsumer<OpportuniteConvertieConsumer>(context);
         });
-cfg.ReceiveEndpoint("gestion-projet-tache-reassigned", e =>  
+
+        cfg.ReceiveEndpoint("gestion-projet-tache-reassigned", e =>
         {
             e.ConfigureConsumer<TacheResponsableReassignedConsumer>(context);
         });
-        cfg.ConfigureEndpoints(context); 
+
+        cfg.ReceiveEndpoint("gestion-projet-agent-sync", e =>
+        {
+            e.ConfigureConsumer<AgentSyncConsumer>(context);
+        });
+
+        cfg.ReceiveEndpoint("gestion-projet-company-sync", e =>
+        {
+            e.ConfigureConsumer<CompanySyncConsumer>(context);
+        });
+
+        cfg.ReceiveEndpoint("gestion-projet-equipe-sync", e =>
+        {
+            e.ConfigureConsumer<EquipeSyncEventConsumer>(context);
+        });
+
+        cfg.ReceiveEndpoint("gestion-projet-type-projet-sync", e =>
+        {
+            e.ConfigureConsumer<TypeProjetSyncEventConsumer>(context);
+        });
+
+        cfg.ConfigureEndpoints(context);
     });
 });
 
@@ -197,6 +246,8 @@ app.UseStaticFiles(new StaticFileOptions
 
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");
+
+// ⚠️ ORDRE IMPORTANT : Authentication AVANT Authorization
 app.UseAuthentication();
 app.UseAuthorization();
 
