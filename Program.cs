@@ -113,9 +113,9 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.Authority = "http://authentik.itanis.tn/application/o/erp-application/";
+    options.Authority = "https://authentik.itanis.tn/application/o/erp-application/";
     options.Audience = "BGnXFXMepfj4wh0AVli40YPWPjTFs9SgBxf1Udxk";
-    options.RequireHttpsMetadata = false;
+    options.RequireHttpsMetadata = true;
     
     options.TokenValidationParameters = new TokenValidationParameters
     {
