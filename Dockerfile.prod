@@ -2,29 +2,34 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
 WORKDIR /src
 
-# Copie le csproj d'abord pour optimiser le cache Docker
+# Build args pour le feed NuGet GitHub (NE persistent PAS en runtime)
+ARG GITHUB_USERNAME
+ARG GITHUB_TOKEN
+
+# Copier nuget.config + csproj d'abord (cache Docker)
+COPY nuget.config .
 COPY GestionProjet.csproj .
+
+# Restore avec les credentials GitHub
+ENV GITHUB_USERNAME=${GITHUB_USERNAME}
+ENV GITHUB_TOKEN=${GITHUB_TOKEN}
 RUN dotnet restore GestionProjet.csproj
 
-# Copie le reste et publie en Release
+# Copier le reste et publier
 COPY . .
 RUN dotnet publish GestionProjet.csproj -c Release -o /app/publish \
     --no-restore \
     /p:UseAppHost=false
 
-# Étape 2 — Runtime
+# Étape 2 — Runtime (pas de token ici, image propre)
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine
 WORKDIR /app
 
-# Copie de l'application compilée depuis l'étape build
 COPY --from=build /app/publish .
 
-# Permissions pour le user non-root
 RUN chown -R app:app /app
 USER app
 
-# Le port 80 (cohérent avec le reste de ton infra)
 ENV ASPNETCORE_URLS=http://+:80
 EXPOSE 80
-
 ENTRYPOINT ["dotnet", "GestionProjet.dll"]
