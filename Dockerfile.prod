@@ -4,7 +4,7 @@ WORKDIR /src
 
 # Copie le csproj d'abord pour optimiser le cache Docker
 COPY GestionProjet.csproj .
-RUN dotnet restore
+RUN dotnet restore GestionProjet.csproj
 
 # Copie le reste et publie en Release
 COPY . .
