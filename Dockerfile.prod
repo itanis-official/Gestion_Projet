@@ -8,7 +8,7 @@ RUN dotnet restore
 
 # Copie le reste et publie en Release
 COPY . .
-RUN dotnet publish -c Release -o /app/publish \
+RUN dotnet publish GestionProjet.csproj -c Release -o /app/publish \
     --no-restore \
     /p:UseAppHost=false
 
