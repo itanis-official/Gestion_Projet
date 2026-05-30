@@ -16,9 +16,6 @@ RUN dotnet publish -c Release -o /app/publish \
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine
 WORKDIR /app
 
-# Création d'un user non-root pour la sécurité
-RUN addgroup -S app && adduser -S app -G app
-
 # Copie de l'application compilée depuis l'étape build
 COPY --from=build /app/publish .
 
