@@ -1,0 +1,33 @@
+# Étape 1 — Build
+FROM mcr.microsoft.com/dotnet/sdk:8.0-alpine AS build
+WORKDIR /src
+
+# Copie le csproj d'abord pour optimiser le cache Docker
+COPY GestionProjet.csproj .
+RUN dotnet restore
+
+# Copie le reste et publie en Release
+COPY . .
+RUN dotnet publish -c Release -o /app/publish \
+    --no-restore \
+    /p:UseAppHost=false
+
+# Étape 2 — Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine
+WORKDIR /app
+
+# Création d'un user non-root pour la sécurité
+RUN addgroup -S app && adduser -S app -G app
+
+# Copie de l'application compilée depuis l'étape build
+COPY --from=build /app/publish .
+
+# Permissions pour le user non-root
+RUN chown -R app:app /app
+USER app
+
+# Le port 80 (cohérent avec le reste de ton infra)
+ENV ASPNETCORE_URLS=http://+:80
+EXPOSE 80
+
+ENTRYPOINT ["dotnet", "GestionProjet.dll"]
